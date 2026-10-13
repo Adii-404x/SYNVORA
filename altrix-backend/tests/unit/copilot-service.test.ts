@@ -19,35 +19,40 @@ function makeService(answer: unknown) {
       sources: [source],
     }),
   };
-  return { service: new CopilotService(llm as never, records as never), llm, records };
+  const supabase = { rpc: vi.fn().mockResolvedValue({ data: 'conversation-1', error: null }) };
+  return { service: new CopilotService(llm as never, records as never), llm, records, supabase };
 }
 
 describe('CopilotService', () => {
   it('returns only citations that were retrieved with verified records', async () => {
-    const { service, llm } = makeService({ answer: 'The record lists 105 mg/dL.', citations: [factId], uncertainty: false });
-    const result = await service.groundedChat('user-1', {} as never, 'What was my result?');
+    const { service, llm, supabase } = makeService({ answer: 'The record lists 105 mg/dL.', citations: [factId], uncertainty: false });
+    const result = await service.groundedChat('user-1', supabase as never, 'What was my result?');
 
     expect(result.sources).toEqual([source]);
     expect(result.uncertainty).toBe(false);
+    expect(result.conversationId).toBe('conversation-1');
+    expect(supabase.rpc).toHaveBeenCalledWith('save_copilot_turn', expect.objectContaining({
+      p_conversation_id: null, p_user_id: 'user-1', p_user_message: 'What was my result?',
+    }));
     expect(llm.chat).toHaveBeenCalledWith(expect.objectContaining({ responseFormat: 'json' }));
   });
 
   it('rejects model citations outside the retrieved source set', async () => {
-    const { service } = makeService({
+    const { service, supabase } = makeService({
       answer: 'Unsupported claim.',
       citations: ['93bc852d-fc33-4d4c-bad7-bf8424f7db8a'],
       uncertainty: false,
     });
 
-    await expect(service.groundedChat('user-1', {} as never, 'Question'))
+    await expect(service.groundedChat('user-1', supabase as never, 'Question'))
       .rejects.toMatchObject({ statusCode: 502, message: 'AI returned a source that was not retrieved' });
   });
 
   it('does not call the model when no verified sources are available', async () => {
-    const { service, llm, records } = makeService({ answer: 'Unused', citations: [], uncertainty: true });
+    const { service, llm, records, supabase } = makeService({ answer: 'Unused', citations: [], uncertainty: true });
     records.getForUser.mockResolvedValueOnce({ observations: [], medications: [], sources: [] });
 
-    const result = await service.groundedChat('user-1', {} as never, 'Question');
+    const result = await service.groundedChat('user-1', supabase as never, 'Question');
     expect(result.uncertainty).toBe(true);
     expect(result.sources).toEqual([]);
     expect(llm.chat).not.toHaveBeenCalled();
@@ -58,11 +63,20 @@ describe('CopilotService', () => {
     const query: any = {};
     for (const method of ['select', 'eq']) query[method] = vi.fn(() => query);
     query.maybeSingle = vi.fn().mockResolvedValue({ data: null, error: null });
-    const supabase = { from: vi.fn(() => query) };
+    const supabase = { from: vi.fn(() => query), rpc: vi.fn() };
 
     await expect(service.groundedChat('user-1', supabase as never, 'Question', factId))
       .rejects.toBeInstanceOf(ApiError);
     expect(records.getForUser).not.toHaveBeenCalled();
     expect(query.eq).toHaveBeenCalledWith('user_id', 'user-1');
+    expect(supabase.rpc).not.toHaveBeenCalled();
+  });
+
+  it('fails safely when the atomic conversation write fails', async () => {
+    const { service, supabase } = makeService({ answer: 'Answer', citations: [factId], uncertainty: false });
+    supabase.rpc.mockResolvedValueOnce({ data: null, error: { message: 'database failure' } });
+
+    await expect(service.groundedChat('user-1', supabase as never, 'Question'))
+      .rejects.toMatchObject({ statusCode: 500, message: 'Failed to save conversation' });
   });
 });

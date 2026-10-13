@@ -33,8 +33,8 @@ export class CopilotService {
       const records = await this.records.getForUser(supabase, userId);
       if (records.sources.length === 0) {
         const answer = 'I do not have verified, source-linked health records to answer this. This is informational and not a clinician\'s diagnosis or treatment instruction.';
-        await this.saveMessages(supabase, conversationId, message, answer, []);
-        return { answer, sources: [], uncertainty: true };
+        const savedConversationId = await this.saveMessages(supabase, userId, conversationId, message, answer, []);
+        return { answer, sources: [], uncertainty: true, conversationId: savedConversationId };
       }
 
       const response = await this.llm.chat({
@@ -61,12 +61,15 @@ export class CopilotService {
       }
 
       const sources = citedSources.filter((source) => source !== undefined);
-      await this.saveMessages(supabase, conversationId, message, parsed.data.answer, sources);
+      const savedConversationId = await this.saveMessages(
+        supabase, userId, conversationId, message, parsed.data.answer, sources,
+      );
 
       return {
         answer: parsed.data.answer,
         sources,
         uncertainty: parsed.data.uncertainty || sources.length === 0,
+        conversationId: savedConversationId,
       };
     } catch (error) {
       if (error instanceof ApiError) throw error;
@@ -76,27 +79,21 @@ export class CopilotService {
 
   private async saveMessages(
     supabase: SupabaseClient,
+    userId: string,
     conversationId: string | undefined,
     message: string,
     answer: string,
     citations: Array<{ factId: string; documentId: string; fileName: string; evidence: string }>,
   ) {
-    if (!conversationId) return;
-
-    const { error: userMessageError } = await supabase.from('copilot_messages').insert({
-      conversation_id: conversationId,
-      role: 'user',
-      content: message,
+    const { data, error } = await supabase.rpc('save_copilot_turn', {
+      p_conversation_id: conversationId ?? null,
+      p_user_id: userId,
+      p_user_message: message,
+      p_assistant_message: answer,
+      p_citations: citations,
     });
-    if (userMessageError) throw new ApiError(500, 'Failed to save conversation');
-
-    const { error: assistantMessageError } = await supabase.from('copilot_messages').insert({
-      conversation_id: conversationId,
-      role: 'assistant',
-      content: answer,
-      citations,
-    });
-    if (assistantMessageError) throw new ApiError(500, 'Failed to save conversation');
+    if (error || typeof data !== 'string') throw new ApiError(500, 'Failed to save conversation');
+    return data;
   }
 }
 

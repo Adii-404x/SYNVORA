@@ -11,6 +11,9 @@ import documentRoutes from './routes/documents.routes';
 import timelineRoutes from './routes/timeline.routes';
 import trendsRoutes from './routes/trends.routes';
 import summaryRoutes from './routes/summary.routes';
+import factsRoutes from './routes/facts.routes';
+import exportsRoutes from './routes/exports.routes';
+import conversationsRoutes from './routes/conversations.routes';
 import { env } from './config/env';
 
 const app = express();
@@ -24,8 +27,11 @@ app.use('/api/auth', authLimiter);
 
 app.use('/api/auth', authRoutes);
 app.use('/api/copilot', copilotRoutes);
+app.use('/api/copilot/conversations', conversationsRoutes);
 app.use('/api/health', healthRoutes);
 app.use('/api/documents', documentRoutes);
+app.use('/api/facts', factsRoutes);
+app.use('/api/exports', exportsRoutes);
 app.use('/api/health/timeline', timelineRoutes);
 app.use('/api/health/trends', trendsRoutes);
 app.use('/api/health/summary', summaryRoutes);

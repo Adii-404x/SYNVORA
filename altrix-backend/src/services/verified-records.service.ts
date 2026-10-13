@@ -7,6 +7,7 @@ interface ObservationRow {
   observation_date: string;
   display_name: string;
   value: number | string | null;
+  original_value: string | null;
   unit: string | null;
   interpretation: string | null;
 }
@@ -28,6 +29,9 @@ interface FactRow {
   source_text: string;
   reference_range: string | null;
   fact_date: string | null;
+  page_number: number | null;
+  extraction_method: string | null;
+  candidate_data: Record<string, unknown> | null;
 }
 
 interface DocumentRow {
@@ -40,6 +44,8 @@ export interface VerifiedSource {
   documentId: string;
   fileName: string;
   evidence: string;
+  pageNumber: number | null;
+  extractionMethod: string | null;
 }
 
 export interface VerifiedObservation {
@@ -61,6 +67,9 @@ export interface VerifiedMedication {
   startDate: string | null;
   endDate: string | null;
   status: string | null;
+  strength: string | null;
+  duration: string | null;
+  reportedDate: string | null;
 }
 
 export interface VerifiedRecords {
@@ -74,7 +83,7 @@ export class VerifiedRecordsService {
     const [observationResult, medicationResult] = await Promise.all([
       supabase
         .from('observations')
-        .select('id, fact_id, observation_date, display_name, value, unit, interpretation')
+        .select('id, fact_id, observation_date, display_name, value, original_value, unit, interpretation')
         .eq('user_id', userId)
         .eq('verified_by', userId),
       supabase
@@ -101,7 +110,7 @@ export class VerifiedRecordsService {
 
     const { data: factData, error: factError } = await supabase
       .from('extracted_facts')
-      .select('id, document_id, source_text, reference_range, fact_date')
+      .select('id, document_id, source_text, reference_range, fact_date, page_number, extraction_method, candidate_data')
       .eq('user_id', userId)
       .eq('verification_status', 'confirmed')
       .in('id', factIds);
@@ -109,6 +118,7 @@ export class VerifiedRecordsService {
     if (factError) throw new ApiError(500, 'Failed to retrieve verified health evidence');
 
     const facts = (factData ?? []) as FactRow[];
+    const factsById = new Map(facts.map((fact) => [fact.id, fact]));
     const documentIds = [...new Set(facts.map((fact) => fact.document_id))];
     if (documentIds.length === 0) {
       return { observations: [], medications: [], sources: [] };
@@ -132,24 +142,28 @@ export class VerifiedRecordsService {
         documentId: fact.document_id,
         fileName: document.file_name,
         evidence: fact.source_text,
+        pageNumber: fact.page_number,
+        extractionMethod: fact.extraction_method,
       });
     }
 
     const observations = observationRows.flatMap((row) => {
       const source = row.fact_id ? factSources.get(row.fact_id) : undefined;
+      const fact = row.fact_id ? factsById.get(row.fact_id) : undefined;
       return source ? [{
         id: row.id,
         factId: source.factId,
         name: row.display_name,
         date: row.observation_date,
-        value: row.value,
+        value: row.original_value ?? row.value,
         unit: row.unit,
-        referenceRange: facts.find((fact) => fact.id === source.factId)?.reference_range ?? row.interpretation,
+        referenceRange: fact?.reference_range ?? row.interpretation,
       }] : [];
     });
 
     const medications = medicationRows.flatMap((row) => {
       const source = row.fact_id ? factSources.get(row.fact_id) : undefined;
+      const fact = row.fact_id ? factsById.get(row.fact_id) : undefined;
       return source ? [{
         id: row.id,
         factId: source.factId,
@@ -159,6 +173,15 @@ export class VerifiedRecordsService {
         startDate: row.start_date,
         endDate: row.end_date,
         status: row.status,
+        strength: typeof fact?.candidate_data?.strength === 'string'
+          ? fact.candidate_data.strength as string
+          : null,
+        duration: typeof fact?.candidate_data?.duration === 'string'
+          ? fact.candidate_data.duration as string
+          : null,
+        reportedDate: typeof fact?.candidate_data?.date === 'string'
+          ? fact.candidate_data.date as string
+          : null,
       }] : [];
     });
 

@@ -5,6 +5,7 @@ import { auditService } from '../services/audit.service';
 import { ApiError } from '../utils/api-error';
 import { getAuthContext } from '../utils/auth-context';
 import { HealthDocument } from '../types';
+import { isSupportedDocumentFile } from '../utils/document-file';
 
 function getDocumentId(req: Request): string {
   const documentId = req.params.documentId;
@@ -17,8 +18,8 @@ export class DocumentsController {
     try {
       const file = req.file;
       if (!file) throw new ApiError(400, 'No file uploaded');
-      if (file.mimetype !== 'application/pdf' && !file.mimetype.startsWith('image/')) {
-        throw new ApiError(415, 'Only PDF and image documents are supported');
+      if (!isSupportedDocumentFile(file.mimetype, file.buffer)) {
+        throw new ApiError(415, 'Document content does not match a supported PDF or image format');
       }
 
       const { userId, supabase } = getAuthContext(req);

@@ -4,11 +4,19 @@ import { authenticate } from '../middleware/authenticate';
 import { documentsController } from '../controllers/documents.controller';
 import { validate } from '../middleware/validate';
 import { documentIdSchema } from '../schemas/document.schema';
+import { supportedDocumentMimeTypes } from '../utils/document-file';
+import { ApiError } from '../utils/api-error';
 
 const router = Router();
-const upload = multer({ 
+const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (req, file, callback) => {
+    if (!supportedDocumentMimeTypes.includes(file.mimetype)) {
+      return callback(new ApiError(415, 'Only PDF, JPEG, PNG, and WebP documents are supported'));
+    }
+    callback(null, true);
+  },
 });
 
 router.post('/', authenticate, upload.single('file'), documentsController.upload);

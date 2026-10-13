@@ -37,7 +37,7 @@ describe('DocumentsController', () => {
       originalname: 'test.pdf',
       mimetype: 'application/pdf',
       size: 1024,
-      buffer: Buffer.from('synthetic test document'),
+      buffer: Buffer.from('%PDF-1.7 synthetic test document'),
     },
   } as any;
   const mockRes = {
@@ -73,6 +73,13 @@ describe('DocumentsController', () => {
   it('rejects an upload without a file', async () => {
     await controller.upload({ ...mockReq, file: undefined }, mockRes, mockNext);
     expect(mockNext).toHaveBeenCalledWith(expect.any(Error));
+  });
+
+  it('rejects spoofed file content before storage', async () => {
+    const spoofed = { ...mockReq.file, buffer: Buffer.from('<html>not a PDF</html>') };
+    await controller.upload({ ...mockReq, file: spoofed }, mockRes, mockNext);
+    expect(storageService.uploadMedicalDocument).not.toHaveBeenCalled();
+    expect(mockNext).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 415 }));
   });
 
   it('extracts only after loading the document under the authenticated user', async () => {

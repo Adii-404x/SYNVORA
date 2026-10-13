@@ -14,6 +14,7 @@ export const medicalExtractionSchema = z.object({
     reference_range: z.string().nullable(),
     flag: z.string().nullable(),
     date: z.string().nullable(),
+    page_number: z.number().int().positive().nullable().optional(),
     source_text: z.string(),
   })),
   medications: z.array(z.object({

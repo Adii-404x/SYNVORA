@@ -1,12 +1,12 @@
 import { Request, Response, NextFunction } from 'express';
 import { summaryService } from '../services/summary.service';
-import { ApiError } from '../utils/api-error';
+import { getAuthContext } from '../utils/auth-context';
 
 export class SummaryController {
   async generate(req: Request, res: Response, next: NextFunction) {
     try {
-      const userId = req.userId;
-      const result = await summaryService.generateSummary(userId);
+      const { userId, supabase } = getAuthContext(req);
+      const result = await summaryService.generateSummary(userId, supabase);
 
       return res.status(200).json({
         success: true,

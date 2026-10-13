@@ -1,32 +1,36 @@
-import { Request, Response, NextFunction } from 'express';
+import { NextFunction, Request, Response } from 'express';
 import { storageService } from '../integrations/supabase/storage';
-import { supabaseAdmin } from '../integrations/supabase/client';
 import { extractionService } from '../services/documents/extraction.service';
 import { auditService } from '../services/audit.service';
 import { ApiError } from '../utils/api-error';
+import { getAuthContext } from '../utils/auth-context';
 import { HealthDocument } from '../types';
+
+function getDocumentId(req: Request): string {
+  const documentId = req.params.documentId;
+  if (typeof documentId !== 'string') throw new ApiError(400, 'Invalid document identifier');
+  return documentId;
+}
 
 export class DocumentsController {
   async upload(req: Request, res: Response, next: NextFunction) {
     try {
       const file = req.file;
-      if (!file) {
-        throw new ApiError(400, 'No file uploaded');
+      if (!file) throw new ApiError(400, 'No file uploaded');
+      if (file.mimetype !== 'application/pdf' && !file.mimetype.startsWith('image/')) {
+        throw new ApiError(415, 'Only PDF and image documents are supported');
       }
 
-      const userId = req.userId;
-      if (!userId) throw new ApiError(401, 'User not authenticated');
-      
-      // 1. Upload to Supabase Storage
+      const { userId, supabase } = getAuthContext(req);
       const { path: storagePath } = await storageService.uploadMedicalDocument(
+        supabase,
         userId,
         file.originalname,
         file.mimetype,
-        file.buffer
+        file.buffer,
       );
 
-      // 2. Create database record
-      const { data, error } = await supabaseAdmin
+      const { data, error } = await supabase
         .from('health_documents')
         .insert({
           user_id: userId,
@@ -39,9 +43,15 @@ export class DocumentsController {
         .select()
         .single();
 
-      if (error) throw new ApiError(500, 'Failed to save document metadata', true, error);
+      if (error || !data) {
+        try {
+          await storageService.deleteMedicalDocument(supabase, storagePath);
+        } catch {
+          console.error('Failed to clean up an unrecorded document upload.');
+        }
+        throw new ApiError(500, 'Failed to save document metadata', true, error);
+      }
 
-      // 3. HIPAA Audit Log
       await auditService.logAction({
         userId,
         action: 'DOCUMENT_UPLOADED',
@@ -49,10 +59,7 @@ export class DocumentsController {
         entityId: data.id,
       });
 
-      return res.status(201).json({
-        success: true,
-        data: data as HealthDocument,
-      });
+      return res.status(201).json({ success: true, data: data as HealthDocument });
     } catch (error) {
       next(error);
     }
@@ -60,21 +67,15 @@ export class DocumentsController {
 
   async list(req: Request, res: Response, next: NextFunction) {
     try {
-      const userId = req.userId;
-      if (!userId) throw new ApiError(401, 'User not authenticated');
-
-      const { data, error } = await supabaseAdmin
+      const { userId, supabase } = getAuthContext(req);
+      const { data, error } = await supabase
         .from('health_documents')
         .select('*')
         .eq('user_id', userId)
         .order('uploaded_at', { ascending: false });
 
       if (error) throw new ApiError(500, 'Failed to fetch documents', true, error);
-
-      return res.status(200).json({
-        success: true,
-        data: data as HealthDocument[],
-      });
+      return res.status(200).json({ success: true, data: data as HealthDocument[] });
     } catch (error) {
       next(error);
     }
@@ -82,91 +83,87 @@ export class DocumentsController {
 
   async getById(req: Request, res: Response, next: NextFunction) {
     try {
-      const { documentId } = req.params;
-      const userId = req.userId;
-      if (!userId) throw new ApiError(401, 'User not authenticated');
-
-      const { data, error } = await supabaseAdmin
+      const { userId, supabase } = getAuthContext(req);
+      const { data, error } = await supabase
         .from('health_documents')
         .select('*')
-        .eq('id', documentId)
+        .eq('id', getDocumentId(req))
         .eq('user_id', userId)
-        .single();
+        .maybeSingle();
 
-      if (error || !data) {
-        throw new ApiError(404, 'Document not found');
-      }
-
-      return res.status(200).json({
-        success: true,
-        data: data as HealthDocument,
-      });
+      if (error || !data) throw new ApiError(404, 'Document not found');
+      return res.status(200).json({ success: true, data: data as HealthDocument });
     } catch (error) {
       next(error);
     }
   }
 
   async extract(req: Request, res: Response, next: NextFunction) {
-    try {
-      const { documentId } = req.params;
-      const userId = req.userId;
-      if (!userId) throw new ApiError(401, 'User not authenticated');
+    let documentId: string | undefined;
+    let userId: string | undefined;
 
-      // 1. Verify document ownership and existence
-      const { data: doc, error: docError } = await supabaseAdmin
+    try {
+      documentId = getDocumentId(req);
+      const auth = getAuthContext(req);
+      userId = auth.userId;
+      const { supabase } = auth;
+      const { data: document, error: documentError } = await supabase
         .from('health_documents')
         .select('*')
         .eq('id', documentId)
         .eq('user_id', userId)
-        .single();
+        .maybeSingle();
 
-      if (docError || !doc) {
-        throw new ApiError(404, 'Document not found');
-      }
+      if (documentError || !document) throw new ApiError(404, 'Document not found');
 
-      // 2. Update status to processing
-      await supabaseAdmin
+      const { error: statusError } = await supabase
         .from('health_documents')
-        .update({ processing_status: 'processing' })
-        .eq('id', documentId);
+        .update({ processing_status: 'processing', error_message: null })
+        .eq('id', documentId)
+        .eq('user_id', userId);
+      if (statusError) throw new ApiError(500, 'Failed to update document status', true, statusError);
 
-      // 3. Run the Extraction Pipeline (OCR -> LLM -> DB)
       const result = await extractionService.processDocument(
         documentId,
         userId,
-        doc.storage_path,
-        doc.mime_type
+        document.storage_path,
+        document.mime_type,
+        supabase,
       );
 
-      // 4. Mark as completed and save extracted text to metadata
-      const { error: updateError } = await supabaseAdmin
+      const { error: updateError } = await supabase
         .from('health_documents')
-        .update({ 
+        .update({
           processing_status: 'completed',
-          metadata: { ...doc.metadata, extracted_text: result.text }
+          error_message: null,
+          metadata: {
+            ...(document.metadata ?? {}),
+            extracted_text: result.text,
+            document_type: result.facts.metadata.document_type,
+            report_date: result.facts.metadata.report_date,
+            facility: result.facts.metadata.facility,
+            patient_name: result.facts.metadata.patient_name,
+          },
         })
-        .eq('id', documentId);
+        .eq('id', documentId)
+        .eq('user_id', userId);
 
-      if (updateError) throw new ApiError(500, 'Failed to update document status');
+      if (updateError) throw new ApiError(500, 'Failed to update document status', true, updateError);
 
       return res.status(200).json({
         success: true,
-        data: {
-          documentId,
-          status: 'completed',
-          facts: result.facts,
-        },
+        data: { documentId, status: 'completed', facts: result.facts },
       });
     } catch (error) {
-      // 5. Resilience: Mark as failed in DB on error
-      if (req.params.documentId) {
+      if (userId && req.supabase && documentId) {
         try {
-          await supabaseAdmin
+          await req.supabase
             .from('health_documents')
             .update({ processing_status: 'failed' })
-            .eq('id', req.params.documentId);
-        } catch (updateErr) {
-          console.error('Failed to mark document as failed:', updateErr);
+            .eq('id', documentId)
+            .eq('user_id', userId);
+        } catch {
+          console.error('Failed to update the document processing status.');
         }
       }
       next(error);

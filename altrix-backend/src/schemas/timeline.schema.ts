@@ -6,6 +6,8 @@ export const timelineQuerySchema = z.object({
     to: z.string().datetime().optional(),
     type: z.enum(['document', 'observation', 'medication']).optional(),
     limit: z.coerce.number().int().min(1).max(100).default(20),
-    cursor: z.string().optional(),
+    cursor: z.string().datetime().optional(),
+  }).refine((query) => !query.from || !query.to || query.from <= query.to, {
+    message: 'from must not be after to',
   }),
 });

@@ -1,55 +1,66 @@
-import { pdfService } from './pdf.service';
-import { ocrService } from './ocr.service';
-import { storageService } from '../../integrations/supabase/storage';
-import { auditService } from '../audit.service';
-import { llmService } from '../llm/llm.service';
+import { SupabaseClient } from '@supabase/supabase-js';
+import { env } from '../../config/env';
 import { MEDICAL_EXTRACTION_PROMPT } from '../../prompts/medical-extraction.prompt';
 import { medicalExtractionSchema } from '../../schemas/extraction.schema';
-import { ApiError } from '../../utils/api-error';
-import { supabaseAdmin } from '../../integrations/supabase/client';
 import { ExtractionResult } from '../../types';
+import { ApiError } from '../../utils/api-error';
+import { auditService } from '../audit.service';
+import { llmService } from '../llm/llm.service';
+import { storageService } from '../../integrations/supabase/storage';
+import { ocrService } from './ocr.service';
+import { pdfService } from './pdf.service';
+
+function toIsoDate(value: string | null): string | null {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== value ? null : value;
+}
 
 export class ExtractionService {
-  async processDocument(documentId: string, userId: string, storagePath: string, mimeType: string): Promise<ExtractionResult> {
+  async processDocument(
+    documentId: string,
+    userId: string,
+    storagePath: string,
+    mimeType: string,
+    supabase: SupabaseClient,
+  ): Promise<ExtractionResult> {
     try {
-      await auditService.logAction({
-        userId,
-        action: 'DOCUMENT_EXTRACTION_STARTED',
-        entityType: 'health_document',
-        entityId: documentId,
-      });
+      await auditService.logAction({ userId, action: 'DOCUMENT_EXTRACTION_STARTED', entityType: 'health_document', entityId: documentId });
 
-      const buffer = await storageService.downloadMedicalDocument(storagePath);
-      let extractedText = '';
+      const buffer = await storageService.downloadMedicalDocument(supabase, storagePath);
+      let extractedText: string;
+      let extractionMethod: 'pdf_text' | 'image_ocr';
       if (mimeType === 'application/pdf') {
         extractedText = await pdfService.extractText(buffer);
+        extractionMethod = 'pdf_text';
       } else if (mimeType.startsWith('image/')) {
         extractedText = await ocrService.extractTextFromImage(buffer);
+        extractionMethod = 'image_ocr';
       } else {
         throw new ApiError(400, 'Unsupported file type for extraction');
       }
 
-      if (!extractedText || extractedText.trim().length === 0) {
-        throw new ApiError(422, 'Document contains no extractable text');
-      }
+      if (!extractedText.trim()) throw new ApiError(422, 'Document contains no extractable text');
 
       const llmResponse = await llmService.chat({
         systemPrompt: MEDICAL_EXTRACTION_PROMPT.system,
-        prompt: `${MEDICAL_EXTRACTION_PROMPT.userPrefix}\n\n${extractedText}`,
+        prompt: `${MEDICAL_EXTRACTION_PROMPT.userPrefix}${extractedText}`,
         temperature: 0.1,
+        responseFormat: 'json',
       });
 
-      const parsed = medicalExtractionSchema.safeParse(JSON.parse(llmResponse.content));
-      if (!parsed.success) {
+      let output: unknown;
+      try {
+        output = JSON.parse(llmResponse.content);
+      } catch {
         throw new ApiError(502, 'AI failed to produce valid structured medical data');
       }
 
-      await this.persistExtraction(userId, documentId, parsed.data, llmResponse.content);
+      const parsed = medicalExtractionSchema.safeParse(output);
+      if (!parsed.success) throw new ApiError(502, 'AI failed to produce valid structured medical data');
 
-      return {
-        text: extractedText,
-        facts: parsed.data,
-      };
+      await this.persistExtraction(supabase, userId, documentId, parsed.data, extractionMethod);
+      return { text: extractedText, facts: parsed.data };
     } catch (error) {
       await auditService.logAction({
         userId,
@@ -62,53 +73,57 @@ export class ExtractionService {
     }
   }
 
-  private async persistExtraction(userId: string, documentId: string, data: any, rawResponse: string) {
-    const { data: run, error: runError } = await supabaseAdmin
+  private async persistExtraction(
+    supabase: SupabaseClient,
+    userId: string,
+    documentId: string,
+    data: ExtractionResult['facts'],
+    extractionMethod: 'pdf_text' | 'image_ocr',
+  ) {
+    const { data: run, error: runError } = await supabase
       .from('extraction_runs')
-      .insert({
-        document_id: documentId,
-        model_used: 'gemma2',
-        status: 'completed',
-        raw_response: JSON.parse(rawResponse),
-      })
-      .select()
+      .insert({ document_id: documentId, model_used: env.OLLAMA_MODEL, status: 'completed', raw_response: data })
+      .select('id')
       .single();
 
-    if (runError) throw runError;
+    if (runError || !run) throw new ApiError(500, 'Failed to save extraction results', true, runError);
 
-    if (data.observations && data.observations.length > 0) {
-      const observations = data.observations.map((obs: any) => ({
+    const candidates = [
+      ...data.observations.map((observation) => ({
         user_id: userId,
         document_id: documentId,
         run_id: run.id,
         fact_type: 'observation',
-        fact_value: obs.value,
-        fact_unit: obs.unit,
-        reference_range: obs.reference_range,
-        source_text: obs.source_text,
+        display_name: observation.test_name,
+        fact_value: observation.value,
+        fact_unit: observation.unit,
+        reference_range: observation.reference_range,
+        fact_date: toIsoDate(observation.date) ?? toIsoDate(data.metadata.report_date),
+        page_number: observation.page_number ?? null,
+        extraction_method: extractionMethod,
+        source_text: observation.source_text,
         verification_status: 'pending',
-      }));
-      
-      const { error: obsError } = await supabaseAdmin.from('extracted_facts').insert(observations);
-      if (obsError) throw obsError;
-    }
-
-    if (data.medications && data.medications.length > 0) {
-      const medications = data.medications.map((med: any) => ({
+      })),
+      ...data.medications.map((medication) => ({
         user_id: userId,
         document_id: documentId,
         run_id: run.id,
         fact_type: 'medication',
-        fact_value: med.drug_name,
-        fact_unit: med.strength,
-        reference_range: med.dosage_instructions,
-        source_text: med.source_text,
+        display_name: medication.drug_name,
+        fact_value: medication.drug_name,
+        fact_unit: medication.strength,
+        reference_range: medication.dosage_instructions,
+        fact_date: toIsoDate(medication.date) ?? toIsoDate(data.metadata.report_date),
+        page_number: null,
+        extraction_method: extractionMethod,
+        source_text: medication.source_text,
         verification_status: 'pending',
-      }));
+      })),
+    ];
 
-      const { error: medError } = await supabaseAdmin.from('extracted_facts').insert(medications);
-      if (medError) throw medError;
-    }
+    if (candidates.length === 0) return;
+    const { error } = await supabase.from('extracted_facts').insert(candidates);
+    if (error) throw new ApiError(500, 'Failed to save extracted candidate facts', true, error);
   }
 }
 

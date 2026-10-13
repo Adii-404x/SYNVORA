@@ -14,6 +14,7 @@ export class OllamaProvider implements ILLMProvider {
           model: env.OLLAMA_MODEL,
           prompt: request.prompt,
           system: request.systemPrompt,
+          format: request.responseFormat,
           stream: false,
           options: {
             temperature: request.temperature ?? 0.2,

@@ -1,16 +1,14 @@
 import { Request, Response, NextFunction } from 'express';
 import { trendsService } from '../services/trends.service';
-import { ApiError } from '../utils/api-error';
+import { getAuthContext } from '../utils/auth-context';
+import { trendsQuerySchema } from '../schemas/trends.schema';
 
 export class TrendsController {
   async getTrends(req: Request, res: Response, next: NextFunction) {
     try {
-      const userId = req.userId;
-      const { testName } = req.query;
-
-      if (!testName) throw new ApiError(400, 'Test name is required');
-
-      const result = await trendsService.getTestTrends(userId, testName as string);
+      const { userId, supabase } = getAuthContext(req);
+      const { query } = trendsQuerySchema.parse({ query: req.query });
+      const result = await trendsService.getTestTrends(supabase, userId, query.testName, query.from, query.to);
 
       return res.status(200).json({
         success: true,

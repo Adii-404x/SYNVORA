@@ -1,5 +1,6 @@
-import { supabaseAdmin } from '../integrations/supabase/client';
+import { SupabaseClient } from '@supabase/supabase-js';
 import { ApiError } from '../utils/api-error';
+import { verifiedRecordsService } from './verified-records.service';
 
 export interface TrendPoint {
   date: string;
@@ -10,34 +11,49 @@ export interface TrendPoint {
 }
 
 export class TrendsService {
-  async getTestTrends(userId: string, testName: string, from?: string, to?: string) {
+  async getTestTrends(
+    supabase: SupabaseClient,
+    userId: string,
+    testName: string,
+    from?: string,
+    to?: string,
+  ) {
     try {
-      const { data, error } = await supabaseAdmin
-        .from('observations')
-        .select('observation_date, value, unit, interpretation, fact_id')
-        .eq('user_id', userId)
-        .ilike('display_name', `%${testName}%`)
-        .order('observation_date', { ascending: true });
+      const records = await verifiedRecordsService.getForUser(supabase, userId);
+      const matching = records.observations.filter((observation) =>
+        observation.name.trim().toLocaleLowerCase() === testName.trim().toLocaleLowerCase());
+      const fromTime = from ? Date.parse(from) : undefined;
+      const toTime = to ? Date.parse(to) : undefined;
+      const inRange = matching.filter((observation) => {
+        const timestamp = Date.parse(observation.date);
+        return (fromTime === undefined || timestamp >= fromTime)
+          && (toTime === undefined || timestamp <= toTime);
+      });
 
-      if (error) throw new ApiError(500, 'Failed to retrieve trend data', true, error);
+      const numeric = inRange.filter((observation) => {
+        return observation.value !== null && Number.isFinite(Number(observation.value));
+      });
+      if (numeric.length === 0) return { status: 'insufficient_data' as const, data: [] as TrendPoint[] };
 
-      // We only use observations where value is a valid number
-      const points: TrendPoint[] = (data || [])
-        .filter(obs => obs.value !== null && !isNaN(Number(obs.value)))
-        .map(obs => ({
-          date: obs.observation_date,
-          value: Number(obs.value),
-          unit: obs.unit || 'unknown',
-          referenceRange: obs.interpretation || null,
-          sourceId: obs.fact_id,
-        }));
-
-      if (points.length === 0) {
-        return { status: 'insufficient_data', data: [] };
+      const units = new Set(numeric.map((observation) => observation.unit?.trim() ?? ''));
+      if (units.size !== 1 || units.has('')) {
+        return { status: 'incompatible_units' as const, data: [] as TrendPoint[] };
       }
 
-      return { status: 'success', data: points };
+      const unit = [...units][0];
+      const data = numeric
+        .map((observation): TrendPoint => ({
+          date: observation.date,
+          value: Number(observation.value),
+          unit,
+          referenceRange: observation.referenceRange,
+          sourceId: observation.factId,
+        }))
+        .sort((a, b) => Date.parse(a.date) - Date.parse(b.date));
+
+      return { status: 'success' as const, data };
     } catch (error) {
+      if (error instanceof ApiError) throw error;
       throw new ApiError(500, 'Error processing health trends', true, error);
     }
   }

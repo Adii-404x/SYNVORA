@@ -1,24 +1,43 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DocumentsController } from '../../src/controllers/documents.controller';
 import { storageService } from '../../src/integrations/supabase/storage';
-import { supabaseAdmin } from '../../src/integrations/supabase/client';
 import { extractionService } from '../../src/services/documents/extraction.service';
 
 vi.mock('../../src/integrations/supabase/storage');
-vi.mock('../../src/integrations/supabase/client');
 vi.mock('../../src/services/documents/extraction.service');
 vi.mock('../../src/services/audit.service');
+
+const document = {
+  id: 'doc-123',
+  user_id: 'user-123',
+  storage_path: 'user-123/test.pdf',
+  mime_type: 'application/pdf',
+  metadata: {},
+};
+
+const queryResult = { data: null, error: null };
+const query: any = {};
+for (const method of ['insert', 'select', 'update', 'eq', 'order']) {
+  query[method] = vi.fn(() => query);
+}
+query.single = vi.fn();
+query.maybeSingle = vi.fn();
+query.then = (resolve: (value: typeof queryResult) => unknown, reject: (reason: unknown) => unknown) =>
+  Promise.resolve(queryResult).then(resolve, reject);
+
+const supabase = { from: vi.fn(() => query) };
 
 describe('DocumentsController', () => {
   let controller: DocumentsController;
   const mockReq = {
     userId: 'user-123',
+    supabase,
     params: { documentId: 'doc-123' },
     file: {
       originalname: 'test.pdf',
       mimetype: 'application/pdf',
       size: 1024,
-      buffer: Buffer.from('fake pdf content'),
+      buffer: Buffer.from('synthetic test document'),
     },
   } as any;
   const mockRes = {
@@ -30,57 +49,58 @@ describe('DocumentsController', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     controller = new DocumentsController();
+    query.single.mockResolvedValue({ data: document, error: null });
+    query.maybeSingle.mockResolvedValue({ data: document, error: null });
   });
 
-  it('should upload a document successfully', async () => {
-    (storageService.uploadMedicalDocument as any).mockResolvedValue({ path: 'user-123/test.pdf' });
-    (supabaseAdmin.from as any).mockReturnValue({
-      insert: vi.fn().mockReturnThis(),
-      select: vi.fn().mockReturnThis(),
-      single: vi.fn().mockResolvedValue({ data: { id: 'doc-123' }, error: null }),
-    });
+  it('uploads through the authenticated client and records owner-scoped metadata', async () => {
+    vi.mocked(storageService.uploadMedicalDocument).mockResolvedValue({ path: document.storage_path });
 
     await controller.upload(mockReq, mockRes, mockNext);
+
+    expect(storageService.uploadMedicalDocument).toHaveBeenCalledWith(
+      supabase,
+      'user-123',
+      'test.pdf',
+      'application/pdf',
+      expect.any(Buffer),
+    );
+    expect(query.insert).toHaveBeenCalledWith(expect.objectContaining({ user_id: 'user-123' }));
     expect(mockRes.status).toHaveBeenCalledWith(201);
-    expect(mockRes.json).toHaveBeenCalledWith(expect.objectContaining({ success: true }));
+    expect(mockNext).not.toHaveBeenCalled();
   });
 
-  it('should fail upload if no file provided', async () => {
-    const reqNoFile = { ...mockReq, file: undefined };
-    await controller.upload(reqNoFile, mockRes, mockNext);
+  it('rejects an upload without a file', async () => {
+    await controller.upload({ ...mockReq, file: undefined }, mockRes, mockNext);
     expect(mockNext).toHaveBeenCalledWith(expect.any(Error));
   });
 
-  it('should extract data from document successfully', async () => {
-    const mockQuery = {
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      single: vi.fn().mockResolvedValue({ data: { id: 'doc-123', storage_path: 'path/to/doc', mime_type: 'application/pdf' }, error: null }),
-      update: vi.fn().mockReturnThis(),
-    };
-    (supabaseAdmin.from as any).mockReturnValue(mockQuery);
-    
-    (extractionService.processDocument as any).mockResolvedValue({
+  it('extracts only after loading the document under the authenticated user', async () => {
+    vi.mocked(extractionService.processDocument).mockResolvedValue({
       text: 'extracted text',
-      facts: { metadata: {}, observations: [], medications: [] },
+      facts: {
+        metadata: { document_type: null, report_date: null, facility: null, patient_name: null },
+        observations: [],
+        medications: [],
+      },
     });
 
     await controller.extract(mockReq, mockRes, mockNext);
+
+    expect(query.eq).toHaveBeenCalledWith('user_id', 'user-123');
+    expect(extractionService.processDocument).toHaveBeenCalledWith(
+      'doc-123', 'user-123', document.storage_path, document.mime_type, supabase,
+    );
     expect(mockRes.status).toHaveBeenCalledWith(200);
-    expect(mockRes.json).toHaveBeenCalledWith(expect.objectContaining({ success: true }));
+    expect(mockNext).not.toHaveBeenCalled();
   });
 
-  it('should handle extraction failure', async () => {
-    const mockQuery = {
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      single: vi.fn().mockResolvedValue({ data: { id: 'doc-123' }, error: null }),
-      update: vi.fn().mockReturnThis(),
-    };
-    (supabaseAdmin.from as any).mockReturnValue(mockQuery);
-    (extractionService.processDocument as any).mockRejectedValue(new Error('OCR failed'));
+  it('marks an owned document failed when extraction fails', async () => {
+    vi.mocked(extractionService.processDocument).mockRejectedValue(new Error('OCR failed'));
 
     await controller.extract(mockReq, mockRes, mockNext);
+
+    expect(query.update).toHaveBeenCalledWith({ processing_status: 'failed' });
     expect(mockNext).toHaveBeenCalledWith(expect.any(Error));
   });
 });

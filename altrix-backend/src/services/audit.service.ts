@@ -1,5 +1,4 @@
 import { supabaseAdmin } from '../integrations/supabase/client';
-import { ApiError } from '../utils/api-error';
 
 export class AuditService {
   async logAction(params: {
@@ -12,6 +11,11 @@ export class AuditService {
     ipAddress?: string,
     userAgent?: string,
   }) {
+    if (!supabaseAdmin) {
+      console.warn('Audit logging skipped because the service-role key is not configured.');
+      return;
+    }
+
     try {
       const { error } = await supabaseAdmin
         .from('audit_logs')

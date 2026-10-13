@@ -27,6 +27,7 @@ export interface ExtractionResult {
       reference_range: string | null;
       flag: string | null;
       date: string | null;
+      page_number?: number | null;
       source_text: string;
     }>;
     medications: Array<{

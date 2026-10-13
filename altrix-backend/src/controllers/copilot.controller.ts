@@ -1,16 +1,14 @@
 import { Request, Response, NextFunction } from 'express';
 import { copilotService } from '../services/copilot.service';
-import { ApiError } from '../utils/api-error';
+import { getAuthContext } from '../utils/auth-context';
 
 export class CopilotController {
   async chat(req: Request, res: Response, next: NextFunction) {
     try {
-      const userId = req.userId;
+      const { userId, supabase } = getAuthContext(req);
       const { message, conversationId } = req.body;
 
-      if (!message) throw new ApiError(400, 'Message is required');
-
-      const result = await copilotService.groundedChat(userId, message, conversationId);
+      const result = await copilotService.groundedChat(userId, supabase, message, conversationId);
 
       return res.status(200).json({
         success: true,

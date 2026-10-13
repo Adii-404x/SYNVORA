@@ -1,70 +1,102 @@
-import { llmService } from './llm/llm.service';
-import { supabaseAdmin } from '../integrations/supabase/client';
+import { SupabaseClient } from '@supabase/supabase-js';
+import { HEALTH_COPILOT_SYSTEM_PROMPT } from '../prompts/health-copilot.prompt';
+import { groundedAnswerSchema } from '../schemas/copilot.schema';
 import { ApiError } from '../utils/api-error';
-import { auditService } from './audit.service';
+import { verifiedRecordsService } from './verified-records.service';
+import { llmService } from './llm/llm.service';
 
 export class CopilotService {
-  async groundedChat(userId: string, message: string, conversationId?: string) {
+  constructor(
+    private readonly llm = llmService,
+    private readonly records = verifiedRecordsService,
+  ) {}
+
+  async groundedChat(
+    userId: string,
+    supabase: SupabaseClient,
+    message: string,
+    conversationId?: string,
+  ) {
     try {
-      const { data: observations } = await supabaseAdmin
-        .from('observations')
-        .select('*')
-        .eq('user_id', userId);
-      
-      const { data: medications } = await supabaseAdmin
-        .from('medications')
-        .select('*')
-        .eq('user_id', userId);
-
-      const { data: docs } = await supabaseAdmin
-        .from('health_documents')
-        .select('id, file_name')
-        .eq('user_id', userId);
-
-      const context = `
-        Verified Observations: ${JSON.stringify(observations)}
-        Verified Medications: ${JSON.stringify(medications)}
-        Available Documents: ${JSON.stringify(docs)}
-      `;
-
-      const systemPrompt = `You are the Altrix Health Copilot. You provide plain-language explanations based ONLY on the provided verified medical records.
-      
-      STRICT RULES:
-      1. Grounding: If a fact is not in the provided context, state that you do not have that information.
-      2. Citations: When mentioning a record, cite the source (e.g., [Doc: ID]).
-      3. No Diagnosis: Do not diagnose. Do not prescribe.
-      4. Urgent Care: If the user describes an emergent situation, advise immediate professional care.
-      5. Integrity: Never fabricate data or sources.
-      
-      CONTEXT:
-      ${context}`;
-
-      const response = await llmService.chat({
-        systemPrompt,
-        prompt: message,
-        temperature: 0.2,
-      });
-
       if (conversationId) {
-        await supabaseAdmin.from('copilot_messages').insert({
-          conversation_id: conversationId,
-          role: 'user',
-          content: message,
-        });
-        await supabaseAdmin.from('copilot_messages').insert({
-          conversation_id: conversationId,
-          role: 'assistant',
-          content: response.content,
-        });
+        const { data, error } = await supabase
+          .from('copilot_conversations')
+          .select('id')
+          .eq('id', conversationId)
+          .eq('user_id', userId)
+          .maybeSingle();
+
+        if (error) throw new ApiError(500, 'Failed to load conversation');
+        if (!data) throw new ApiError(404, 'Conversation not found');
       }
 
+      const records = await this.records.getForUser(supabase, userId);
+      if (records.sources.length === 0) {
+        const answer = 'I do not have verified, source-linked health records to answer this. This is informational and not a clinician\'s diagnosis or treatment instruction.';
+        await this.saveMessages(supabase, conversationId, message, answer, []);
+        return { answer, sources: [], uncertainty: true };
+      }
+
+      const response = await this.llm.chat({
+        systemPrompt: HEALTH_COPILOT_SYSTEM_PROMPT,
+        prompt: JSON.stringify({ question: message, records }),
+        temperature: 0.2,
+        responseFormat: 'json',
+      });
+
+      let output: unknown;
+      try {
+        output = JSON.parse(response.content);
+      } catch {
+        throw new ApiError(502, 'AI returned an invalid structured response');
+      }
+
+      const parsed = groundedAnswerSchema.safeParse(output);
+      if (!parsed.success) throw new ApiError(502, 'AI returned an invalid structured response');
+
+      const sourceByFactId = new Map(records.sources.map((source) => [source.factId, source]));
+      const citedSources = parsed.data.citations.map((factId) => sourceByFactId.get(factId));
+      if (citedSources.some((source) => !source)) {
+        throw new ApiError(502, 'AI returned a source that was not retrieved');
+      }
+
+      const sources = citedSources.filter((source) => source !== undefined);
+      await this.saveMessages(supabase, conversationId, message, parsed.data.answer, sources);
+
       return {
-        answer: response.content,
-        sources: docs?.map((d: any) => d.id) || [],
+        answer: parsed.data.answer,
+        sources,
+        uncertainty: parsed.data.uncertainty || sources.length === 0,
       };
     } catch (error) {
+      if (error instanceof ApiError) throw error;
       throw new ApiError(500, 'Copilot service unavailable', true, error);
     }
+  }
+
+  private async saveMessages(
+    supabase: SupabaseClient,
+    conversationId: string | undefined,
+    message: string,
+    answer: string,
+    citations: Array<{ factId: string; documentId: string; fileName: string; evidence: string }>,
+  ) {
+    if (!conversationId) return;
+
+    const { error: userMessageError } = await supabase.from('copilot_messages').insert({
+      conversation_id: conversationId,
+      role: 'user',
+      content: message,
+    });
+    if (userMessageError) throw new ApiError(500, 'Failed to save conversation');
+
+    const { error: assistantMessageError } = await supabase.from('copilot_messages').insert({
+      conversation_id: conversationId,
+      role: 'assistant',
+      content: answer,
+      citations,
+    });
+    if (assistantMessageError) throw new ApiError(500, 'Failed to save conversation');
   }
 }
 

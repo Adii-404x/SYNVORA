@@ -13,6 +13,7 @@ export interface LLMRequest {
   context?: string;
   temperature?: number;
   maxTokens?: number;
+  responseFormat?: 'json';
 }
 
 export interface ILLMProvider {

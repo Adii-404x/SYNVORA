@@ -1,25 +1,27 @@
-# Altrix Labs Backend
+# Altrix Labs API
 
-AI-Powered Personal Health Copilot Backend.
+Express 5 API using strict TypeScript, Zod, Supabase Auth/PostgreSQL/Storage, PDF text extraction, Tesseract.js, and an isolated Ollama provider adapter.
 
-## Project Structure
-- src/: Source code
-  - config/: Environment and global configuration.
-  - middleware/: Request processing pipeline.
-  - outes/: API endpoint definitions.
-  - controllers/: Request handling logic.
-  - services/: Core business logic and domain services.
-  - integrations/: Third-party API clients (Supabase, Ollama, OCR).
-  - schemas/: Validation schemas.
-  - jobs/: Background processing tasks.
-  - utils/: Shared utility functions.
-- supabase/: Database migrations and seed data.
-- 	ests/: Testing suite (unit, integration, security).
-- docs/: API documentation and contracts.
+## Setup
 
-## Planned Modules
-- Document OCR & Parsing
-- Fact Extraction (Medical Entity Recognition)
-- Health Timeline Generation
-- AI Copilot (RAG based on health facts)
-- FHIR-compliant Data Export
+```powershell
+npm ci
+Copy-Item .env.example .env
+# Set Supabase URL and publishable key, then:
+npm run dev
+```
+
+The default API URL is `http://localhost:3000`. The frontend runs at `http://localhost:5173`; configure `FRONTEND_ORIGIN` to the exact browser origin.
+
+## Scripts
+
+- `npm run dev`: development server.
+- `npm run build`: TypeScript compilation.
+- `npm start`: compiled server.
+- `npm test`: Vitest suite.
+- `npm run test:watch`: watch mode.
+- `npm run lint`: Prettier write command for `src/**/*.ts` (it rewrites files).
+
+## Configuration And Migrations
+
+See [development.md](docs/development.md) for required variables, private Storage bucket setup, migration order, and verification boundaries. API contracts are documented in [api-contract.md](docs/api-contract.md). OCR formats and limitations are in [ocr.md](docs/ocr.md).

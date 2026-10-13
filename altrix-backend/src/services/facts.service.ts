@@ -23,6 +23,12 @@ interface PendingFactRow {
   page_number: number | null;
   extraction_method: string | null;
   candidate_data: Record<string, unknown> | null;
+  ocr_confidence: number | null;
+  llm_confidence: number | null;
+  source_start_offset: number | null;
+  source_end_offset: number | null;
+  source_boxes: unknown[];
+  quality_flags: string[];
   created_at: string;
 }
 
@@ -35,7 +41,7 @@ export class FactsService {
   async listPending(supabase: SupabaseClient, userId: string) {
     const { data, error } = await supabase
       .from('extracted_facts')
-      .select('id, document_id, fact_type, display_name, fact_value, fact_unit, reference_range, fact_date, source_text, page_number, extraction_method, candidate_data, created_at')
+      .select('id, document_id, fact_type, display_name, fact_value, fact_unit, reference_range, fact_date, source_text, page_number, extraction_method, candidate_data, ocr_confidence, llm_confidence, source_start_offset, source_end_offset, source_boxes, quality_flags, created_at')
       .eq('user_id', userId)
       .eq('verification_status', 'pending')
       .order('created_at', { ascending: false })

@@ -28,6 +28,14 @@ export class SupabaseStorageService {
     return Buffer.from(arrayBuffer);
   }
 
+  async createMedicalDocumentUrl(supabase: SupabaseClient, filePath: string): Promise<string> {
+    const { data, error } = await supabase.storage
+      .from('medical-documents')
+      .createSignedUrl(filePath, 60);
+    if (error || !data?.signedUrl) throw error ?? new Error('Signed URL was not created');
+    return data.signedUrl;
+  }
+
   async deleteMedicalDocument(supabase: SupabaseClient, filePath: string): Promise<void> {
     const { error } = await supabase.storage.from('medical-documents').remove([filePath]);
     if (error) throw error;

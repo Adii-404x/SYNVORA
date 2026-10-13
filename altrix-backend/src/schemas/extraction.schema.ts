@@ -18,6 +18,7 @@ export const medicationCandidateSchema = z.object({
   frequency: z.string().nullable(),
   duration: z.string().nullable(),
   date: z.string().nullable(),
+  page_number: z.number().int().positive().nullable().optional(),
   source_text: z.string(),
 });
 

@@ -21,6 +21,7 @@ const upload = multer({
 
 router.post('/', authenticate, upload.single('file'), documentsController.upload);
 router.get('/', authenticate, documentsController.list);
+router.get('/:documentId/url', authenticate, validate(documentIdSchema), documentsController.getSignedUrl);
 router.get('/:documentId', authenticate, validate(documentIdSchema), documentsController.getById);
 router.post('/:documentId/extract', authenticate, validate(documentIdSchema), documentsController.extract);
 

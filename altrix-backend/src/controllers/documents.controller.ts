@@ -99,9 +99,34 @@ export class DocumentsController {
     }
   }
 
+  async getSignedUrl(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, supabase } = getAuthContext(req);
+      const { data, error } = await supabase
+        .from('health_documents')
+        .select('storage_path')
+        .eq('id', getDocumentId(req))
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      if (error) throw new ApiError(500, 'Failed to retrieve document');
+      if (!data) throw new ApiError(404, 'Document not found');
+      let url: string;
+      try {
+        url = await storageService.createMedicalDocumentUrl(supabase, data.storage_path);
+      } catch {
+        throw new ApiError(503, 'Document preview is temporarily unavailable');
+      }
+      return res.status(200).json({ success: true, data: { url, expiresIn: 60 } });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async extract(req: Request, res: Response, next: NextFunction) {
     let documentId: string | undefined;
     let userId: string | undefined;
+    let processingClaimed = false;
 
     try {
       documentId = getDocumentId(req);
@@ -117,12 +142,17 @@ export class DocumentsController {
 
       if (documentError || !document) throw new ApiError(404, 'Document not found');
 
-      const { error: statusError } = await supabase
+      const { data: claimed, error: statusError } = await supabase
         .from('health_documents')
         .update({ processing_status: 'processing', error_message: null })
         .eq('id', documentId)
-        .eq('user_id', userId);
+        .eq('user_id', userId)
+        .neq('processing_status', 'processing')
+        .select('id')
+        .maybeSingle();
       if (statusError) throw new ApiError(500, 'Failed to update document status', true, statusError);
+      if (!claimed) throw new ApiError(409, 'Document extraction is already in progress');
+      processingClaimed = true;
 
       const result = await extractionService.processDocument(
         documentId,
@@ -144,7 +174,22 @@ export class DocumentsController {
             report_date: result.facts.metadata.report_date,
             facility: result.facts.metadata.facility,
             patient_name: result.facts.metadata.patient_name,
+            extraction_method: result.extractionMethod,
+            page_count: result.pageCount,
+            extraction_quality_flags: result.qualityFlags,
+            extracted_pages: result.pages.map((page) => ({
+              page_number: page.pageNumber,
+              text: page.text,
+              embedded_text: page.embeddedText ?? null,
+              extraction_method: page.method,
+              ocr_confidence: page.ocrConfidence,
+              quality_flags: page.qualityFlags,
+              blocks: page.blocks,
+            })),
           },
+          page_count: result.pageCount,
+          extraction_method: result.extractionMethod,
+          extraction_quality_flags: result.qualityFlags,
         })
         .eq('id', documentId)
         .eq('user_id', userId);
@@ -153,10 +198,17 @@ export class DocumentsController {
 
       return res.status(200).json({
         success: true,
-        data: { documentId, status: 'completed', facts: result.facts },
+        data: {
+          documentId,
+          status: 'completed',
+          extractionMethod: result.extractionMethod,
+          pageCount: result.pageCount,
+          qualityFlags: result.qualityFlags,
+          facts: result.facts,
+        },
       });
     } catch (error) {
-      if (userId && req.supabase && documentId) {
+      if (processingClaimed && userId && req.supabase && documentId) {
         try {
           await req.supabase
             .from('health_documents')

@@ -10,6 +10,8 @@ export type ScreenId =
   | 'home'
   | 'timeline'
   | 'upload'
+  | 'copilot'
+  | 'summary'
   | 'report_detail'
   | 'privacy_hub'
   | 'consent_onboarding'

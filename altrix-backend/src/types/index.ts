@@ -13,6 +13,10 @@ export interface HealthDocument {
 
 export interface ExtractionResult {
   text: string;
+  pages: ExtractedDocumentPage[];
+  pageCount: number;
+  extractionMethod: 'pdf_text' | 'pdf_ocr' | 'mixed_pdf' | 'image_ocr';
+  qualityFlags: string[];
   facts: {
     metadata: {
       document_type: string | null;
@@ -29,6 +33,7 @@ export interface ExtractionResult {
       date: string | null;
       page_number?: number | null;
       source_text: string;
+      quality_flags?: string[];
     }>;
     medications: Array<{
       drug_name: string;
@@ -38,8 +43,26 @@ export interface ExtractionResult {
       duration: string | null;
       date: string | null;
       source_text: string;
+      page_number?: number | null;
+      quality_flags?: string[];
     }>;
   };
+}
+
+export interface OcrBlock {
+  text: string;
+  confidence: number | null;
+  bbox: { x0: number; y0: number; x1: number; y1: number } | null;
+}
+
+export interface ExtractedDocumentPage {
+  pageNumber: number;
+  text: string;
+  embeddedText?: string | null;
+  method: 'pdf_text' | 'pdf_ocr' | 'image_ocr';
+  ocrConfidence: number | null;
+  blocks: OcrBlock[];
+  qualityFlags: string[];
 }
 
 export interface AuditLogEntry {

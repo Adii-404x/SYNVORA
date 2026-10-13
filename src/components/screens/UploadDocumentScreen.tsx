@@ -1,391 +1,246 @@
-import React, { useState } from 'react';
+import React, { ChangeEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { useLanguage } from '../../context/LanguageContext';
-import { MaskedValue } from '../common/MaskedValue';
-import { AiDisclaimerFooter } from '../common/AiDisclaimerFooter';
-import { LoadingSkeleton } from '../common/LoadingSkeleton';
-import { EmptyState } from '../common/EmptyState';
-import { ErrorState } from '../common/ErrorState';
-import { APP_ASSETS } from '../../data/mockData';
+import { api, CandidateFact, HealthDocument } from '../../services/api';
+
+const acceptedTypes = new Set(['application/pdf', 'image/jpeg', 'image/png', 'image/webp']);
+const maxFileSize = 10 * 1024 * 1024;
+
+function dateInputValue(value: unknown) {
+  return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : '';
+}
+
+function candidateDate(fact: CandidateFact) {
+  return dateInputValue(fact.fact_date) || dateInputValue(fact.candidate_data?.date);
+}
 
 export const UploadDocumentScreen: React.FC = () => {
-  const { lang, translations, setCurrentScreen, screenState, setScreenState } = useLanguage();
+  const { setCurrentScreen } = useLanguage();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [facts, setFacts] = useState<CandidateFact[]>([]);
+  const [documents, setDocuments] = useState<HealthDocument[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedName, setSelectedName] = useState('');
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  const [processing, setProcessing] = useState(false);
+  const [activeDocument, setActiveDocument] = useState<HealthDocument | null>(null);
+  const [dateCorrections, setDateCorrections] = useState<Record<string, string>>({});
+  const [busyFact, setBusyFact] = useState<string | null>(null);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
 
-  const [frequencyValue, setFrequencyValue] = useState('Twice daily (BD)');
-  const [frequencyVerified, setFrequencyVerified] = useState(false);
-  const [saveCorrectionsConsent, setSaveCorrectionsConsent] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
-  const [savedSuccess, setSavedSuccess] = useState(false);
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const loadReviewData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [pending, ownedDocuments] = await Promise.all([api.getPendingFacts(), api.getDocuments()]);
+      setFacts(pending);
+      setDocuments(ownedDocuments);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Review data could not be loaded.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-  if (screenState === 'loading') {
-    return (
-      <div className="max-w-lg mx-auto py-6 px-4">
-        <LoadingSkeleton type="detail" count={2} />
-      </div>
-    );
+  useEffect(() => { void loadReviewData(); }, [loadReviewData]);
+
+  async function handleFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setSelectedName(file.name);
+    setError('');
+    setNotice('');
+    setActiveDocument(null);
+    if (!acceptedTypes.has(file.type)) {
+      setError('Choose a PDF, JPEG, PNG, or WebP file.');
+      event.target.value = '';
+      return;
+    }
+    if (file.size <= 0 || file.size > maxFileSize) {
+      setError('The file must be smaller than 10 MB.');
+      event.target.value = '';
+      return;
+    }
+
+    setUploadProgress(0);
+    setProcessing(false);
+    try {
+      const document = await api.uploadDocument(file, setUploadProgress);
+      setActiveDocument(document);
+      setUploadProgress(null);
+      setProcessing(true);
+      await api.extractDocument(document.id);
+      setActiveDocument({ ...document, processing_status: 'completed', error_message: null });
+      setNotice('Extraction finished. Candidate facts are shown below for your review.');
+      await loadReviewData();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'The document could not be processed.');
+      await loadReviewData();
+    } finally {
+      setUploadProgress(null);
+      setProcessing(false);
+      event.target.value = '';
+    }
   }
 
-  if (screenState === 'empty') {
-    return (
-      <div className="max-w-lg mx-auto py-10 px-4">
-        <EmptyState
-          icon="upload_file"
-          title="No Document Selected"
-          subtitle="Snap a photo of your prescription or select a lab report PDF."
-          actionLabel="Take Photo / Choose File"
-          onAction={() => setScreenState('normal')}
-        />
-      </div>
-    );
+  async function retry(document: HealthDocument) {
+    setActiveDocument(document);
+    setError('');
+    setNotice('');
+    setProcessing(true);
+    try {
+      await api.extractDocument(document.id);
+      setActiveDocument({ ...document, processing_status: 'completed', error_message: null });
+      setNotice('Extraction finished. Review any pending candidate facts below.');
+      await loadReviewData();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Extraction could not be retried.');
+      await loadReviewData();
+    } finally {
+      setProcessing(false);
+    }
   }
 
-  if (screenState === 'error') {
-    return (
-      <div className="max-w-lg mx-auto py-10 px-4">
-        <ErrorState
-          title="Could not process document OCR"
-          subtitle="The image may be too blurry or dark. Your original file remains untouched."
-          onRetry={() => setScreenState('normal')}
-        />
-      </div>
-    );
+  async function openDocument(id: string) {
+    const popup = window.open('about:blank', '_blank');
+    if (!popup) { setError('Allow pop-ups to open a private document preview.'); return; }
+    popup.opener = null;
+    try {
+      const { url } = await api.getDocumentUrl(id);
+      popup.location.replace(url);
+    } catch (cause) {
+      popup.close();
+      setError(cause instanceof Error ? cause.message : 'Document preview could not be opened.');
+    }
   }
 
-  const triggerToast = (msg: string) => {
-    setToastMessage(msg);
-    setTimeout(() => setToastMessage(null), 3000);
-  };
+  async function review(fact: CandidateFact, decision: 'confirm' | 'reject') {
+    const observationDate = dateCorrections[fact.id] ?? candidateDate(fact);
+    if (decision === 'confirm' && fact.fact_type === 'observation' && !observationDate) {
+      setError('This observation has no usable date. Enter the date printed on the source report before confirming it.');
+      return;
+    }
+    setBusyFact(fact.id);
+    setError('');
+    try {
+      if (decision === 'confirm') await api.confirmFact(fact.id, observationDate || undefined);
+      else await api.rejectFact(fact.id);
+      setNotice(decision === 'confirm' ? 'Candidate confirmed and added to verified records.' : 'Candidate rejected.');
+      setFacts((current) => current.filter((item) => item.id !== fact.id));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'The review decision could not be saved.');
+    } finally {
+      setBusyFact(null);
+    }
+  }
 
-  const handleConfirmFrequency = () => {
-    setFrequencyVerified(true);
-    triggerToast('Dosage frequency verified as Twice daily (BD)');
-  };
-
-  const handleSaveToRecords = () => {
-    setIsSaving(true);
-    setTimeout(() => {
-      setIsSaving(false);
-      setSavedSuccess(true);
-      triggerToast('Prescription secured to Sunita’s health timeline!');
-      setTimeout(() => {
-        setCurrentScreen('timeline');
-      }, 900);
-    }, 1000);
-  };
+  const currentStatus = activeDocument?.processing_status;
+  const pendingDocuments = documents.filter((document) => ['pending', 'failed'].includes(document.processing_status));
 
   return (
-    <div className="w-full max-w-lg mx-auto px-4 py-4 space-y-4">
-      {/* 1. MANDATORY PRIVACY BANNER: Small lock icon with 'Your records are private and encrypted' */}
-      <div className="w-full bg-teal-50/80 border border-teal-200/90 rounded-2xl p-3.5 flex items-center justify-between gap-3 shadow-xs">
-        <div className="flex items-center gap-2.5 min-w-0">
-          <div className="w-8 h-8 rounded-full bg-teal-700 text-white flex items-center justify-center shrink-0 shadow-xs">
-            <span className="material-symbols-outlined text-[18px]">lock</span>
+    <section className="mx-auto w-full max-w-4xl px-4 py-6 sm:px-6 space-y-6">
+      <header>
+        <h1 className="text-2xl font-bold text-slate-900">Documents and fact review</h1>
+        <p className="mt-1 text-sm text-slate-600">Upload a report, then review each extracted candidate against its original evidence.</p>
+      </header>
+
+      {error && <div role="alert" className="rounded-lg border border-rose-300 bg-rose-50 p-3 text-sm text-rose-900">{error}</div>}
+      {notice && <div role="status" className="rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-900">{notice}</div>}
+
+      <section className="border-y border-slate-200 py-5">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 className="text-base font-semibold text-slate-900">Upload medical document</h2>
+            <p className="mt-1 text-sm text-slate-600">PDF, JPEG, PNG, or WebP · 10 MB maximum</p>
           </div>
-          <div className="flex flex-col min-w-0">
-            <span className="text-xs font-bold text-teal-950 truncate">
-              {translations.uploadPrivacyBanner}
-            </span>
-            <span className="text-[11px] text-teal-800/80 truncate">
-              {translations.uploadPrivacyBannerSub}
-            </span>
+          <input ref={inputRef} type="file" accept="application/pdf,image/jpeg,image/png,image/webp" onChange={(event) => void handleFile(event)} className="block max-w-full text-sm text-slate-700 file:mr-3 file:min-h-10 file:rounded-md file:border-0 file:bg-teal-800 file:px-4 file:text-sm file:font-semibold file:text-white" disabled={uploadProgress !== null || processing} />
+        </div>
+        {selectedName && <p className="mt-3 truncate text-sm text-slate-700">{selectedName}</p>}
+        {uploadProgress !== null && (
+          <div className="mt-3" aria-live="polite">
+            <div className="flex justify-between text-xs text-slate-600"><span>Uploading</span><span>{uploadProgress}%</span></div>
+            <progress className="mt-1 h-2 w-full accent-teal-800" max={100} value={uploadProgress}>{uploadProgress}%</progress>
           </div>
-        </div>
-        <button
-          type="button"
-          onClick={() => setCurrentScreen('privacy_hub')}
-          className="text-[11px] font-bold text-teal-800 hover:text-teal-900 underline shrink-0 px-1"
-        >
-          {lang === 'hi' ? 'सेटिंग्स' : 'Manage'}
-        </button>
-      </div>
+        )}
+        {processing && <p role="status" className="mt-3 text-sm text-slate-700">Extracting page text and candidate facts. This may take a few minutes for scanned documents.</p>}
+        {activeDocument && !processing && currentStatus && <p className="mt-3 text-xs text-slate-600">Processing status: {currentStatus}</p>}
+      </section>
 
-      {/* Stepper Pipeline Indicator */}
-      <div className="w-full bg-white rounded-xl p-3 shadow-xs border border-slate-200/70 flex items-center justify-between gap-1 overflow-x-auto no-scrollbar">
-        <div className="flex items-center gap-1.5 min-w-[70px]">
-          <div className="w-5 h-5 rounded-full bg-teal-700 text-white flex items-center justify-center text-[12px]">
-            ✓
-          </div>
-          <span className="text-xs font-bold text-teal-800">Uploaded</span>
-        </div>
-        <div className="h-[2px] w-4 bg-teal-200 shrink-0"></div>
-        <div className="flex items-center gap-1.5 min-w-[75px]">
-          <div className="w-5 h-5 rounded-full bg-teal-700 text-white flex items-center justify-center text-[12px]">
-            ✓
-          </div>
-          <span className="text-xs font-bold text-teal-800">OCR Read</span>
-        </div>
-        <div className="h-[2px] w-4 bg-teal-200 shrink-0"></div>
-        <div className="flex items-center gap-1.5 min-w-[85px]">
-          <div className="w-5 h-5 rounded-full bg-teal-700 text-white flex items-center justify-center text-[12px]">
-            ✓
-          </div>
-          <span className="text-xs font-bold text-teal-800">Understood</span>
-        </div>
-        <div className="h-[2px] w-4 bg-teal-200 shrink-0"></div>
-        <div className="flex items-center gap-1.5 min-w-[75px]">
-          <div className="w-5 h-5 rounded-full bg-teal-800 text-white flex items-center justify-center text-[11px] font-bold ring-2 ring-teal-400/40">
-            4
-          </div>
-          <span className="text-xs font-bold text-teal-900">Review</span>
-        </div>
-      </div>
-
-      {/* Reassuring Greeting Card */}
-      <div className="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-xs flex items-start gap-3 relative overflow-hidden">
-        <div className="w-10 h-10 rounded-xl bg-teal-50 text-teal-800 border border-teal-200/60 flex items-center justify-center shrink-0">
-          <span className="material-symbols-outlined text-[22px]">health_and_safety</span>
-        </div>
-        <div className="flex flex-col min-w-0">
-          <h1 className="text-sm font-bold text-slate-900">
-            Review Sunita's Prescription
-          </h1>
-          <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
-            We processed 5 key details. Please quickly verify the flagged items before storing in her health timeline.
-          </p>
-        </div>
-      </div>
-
-      {/* Prescription Preview Card with Bounding Boxes */}
-      <div className="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-xs space-y-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-1.5">
-            <span className="material-symbols-outlined text-teal-700 text-[18px]">
-              document_scanner
-            </span>
-            <span className="text-xs font-bold text-slate-900">Original Document OCR</span>
-          </div>
-          <span className="text-[11px] text-teal-800 font-semibold bg-teal-50 px-2 py-0.5 rounded-full">
-            Tap to zoom
-          </span>
-        </div>
-
-        {/* Scanned Image with OCR Anchors */}
-        <div className="relative w-full h-44 rounded-xl overflow-hidden bg-slate-100 shadow-inner group">
-          <img
-            src={APP_ASSETS.prescriptionPhoto}
-            alt="Prescription preview"
-            className="w-full h-full object-cover opacity-90 transition-transform duration-300 group-hover:scale-105"
-          />
-          <div className="absolute inset-0 bg-slate-900/10 pointer-events-none"></div>
-
-          {/* High Match Medicine */}
-          <div className="absolute top-[28%] left-[8%] w-[42%] h-[18%] bg-teal-500/30 rounded-lg flex items-start p-1 backdrop-blur-[1px]">
-            <span className="bg-teal-700 text-white text-[9px] font-bold px-1 rounded shadow-xs">
-              Rx: 96%
-            </span>
-          </div>
-
-          {/* Low Confidence Frequency Flag */}
-          <div className="absolute top-[50%] left-[12%] w-[48%] h-[20%] bg-amber-500/30 rounded-lg flex items-start justify-between p-1 ring-2 ring-amber-500 animate-pulse">
-            <span className="bg-amber-600 text-white text-[9px] font-bold px-1 rounded shadow-xs">
-              Needs Review 74%
-            </span>
-            <span className="material-symbols-outlined text-amber-700 text-[12px]">
-              priority_high
-            </span>
-          </div>
-
-          {/* Doctor Stamp */}
-          <div className="absolute bottom-[8%] right-[6%] w-[38%] h-[26%] bg-teal-600/30 rounded-lg flex items-end justify-end p-1">
-            <span className="bg-teal-800 text-white text-[9px] font-bold px-1 rounded">
-              Dr. Rajesh 98%
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* DEMO OF MASKED SENSITIVE DETAILS (Blur with 'Tap to show') */}
-      <div className="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-xs space-y-3">
-        <div className="flex items-center justify-between pb-1">
-          <div className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-teal-700 text-[20px]">
-              visibility_lock
-            </span>
-            <span className="text-xs font-bold text-slate-900 uppercase tracking-wider">
-              Protected Patient Identifiers
-            </span>
-          </div>
-          <span className="text-[10px] font-bold text-teal-800 bg-teal-50 px-2 py-0.5 rounded-full">
-            Masked
-          </span>
-        </div>
-
-        {/* Masked Sensitive Diagnosis */}
-        <MaskedValue
-          label="Clinical Diagnosis (Private)"
-          value="Type 2 Diabetes Mellitus with borderline volatility"
-          maskedPlaceholder="•••••••• •••••••• ••••••••••"
-        />
-
-        {/* Masked ABHA Number */}
-        <MaskedValue
-          label="Ayushman Bharat Health Account (ABDM ID)"
-          value="91-8274-1029-4421"
-          maskedPlaceholder="91-••••-••••-4421"
-        />
-      </div>
-
-      {/* Extracted Parameters Review */}
-      <div className="space-y-3">
-        <div className="flex items-center justify-between px-1">
-          <span className="text-xs font-bold text-slate-900 uppercase tracking-wider">
-            Extracted Parameters (5 Items)
-          </span>
-          <span className="text-xs font-semibold text-amber-800">
-            {frequencyVerified ? 'All 5 Verified' : '1 Attention Required'}
-          </span>
-        </div>
-
-        {/* Field 1: Dosage Frequency (Needs Review Focus) */}
-        <div className="bg-white rounded-2xl p-4 border border-amber-200 shadow-sm space-y-2.5">
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">
-              Dosage Frequency
-            </span>
-            <span
-              className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 ${
-                frequencyVerified
-                  ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                  : 'bg-amber-100 text-amber-900 border border-amber-200'
-              }`}
-            >
-              <span
-                className={`w-1.5 h-1.5 rounded-full ${
-                  frequencyVerified ? 'bg-emerald-600' : 'bg-amber-600'
-                }`}
-              ></span>
-              <span>{frequencyVerified ? 'Verified by User' : 'Needs review · 74%'}</span>
-            </span>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <input
-              type="text"
-              value={frequencyValue}
-              onChange={(e) => setFrequencyValue(e.target.value)}
-              className="w-full min-h-[48px] px-3.5 rounded-xl bg-slate-50 border border-slate-300 font-semibold text-sm text-slate-900 focus:outline-none focus:border-teal-700 focus:bg-white"
-            />
-            <button
-              type="button"
-              onClick={handleConfirmFrequency}
-              className={`min-h-[48px] px-3.5 rounded-xl text-xs font-bold flex items-center justify-center transition-all cursor-pointer ${
-                frequencyVerified
-                  ? 'bg-emerald-100 text-emerald-900 border border-emerald-300'
-                  : 'bg-teal-700 hover:bg-teal-800 text-white shadow-xs'
-              }`}
-            >
-              <span className="material-symbols-outlined text-[18px]">
-                {frequencyVerified ? 'done_all' : 'check'}
-              </span>
-            </button>
-          </div>
-
-          <p className="text-[11px] text-slate-500">
-            Suggested correction based on Dr. Mehta's past prescription history: BD (Twice daily).
-          </p>
-        </div>
-
-        {/* Field 2: Medicine Name */}
-        <div className="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-xs flex items-center justify-between gap-3">
-          <div className="flex flex-col min-w-0">
-            <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
-              Medicine Name
-            </span>
-            <span className="text-sm font-bold text-slate-900 truncate">Metformin 500mg</span>
-            <span className="text-[11px] text-slate-500">Oral Tablet • Antidiabetic</span>
-          </div>
-          <span className="text-[11px] font-bold text-teal-800 bg-teal-50 px-2 py-0.5 rounded-full border border-teal-200/60 shrink-0">
-            96% Match
-          </span>
-        </div>
-
-        {/* Field 3: Prescribing Doctor */}
-        <div className="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-xs flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="w-9 h-9 rounded-full bg-teal-50 text-teal-800 border border-teal-200 flex items-center justify-center font-bold text-xs shrink-0">
-              RM
-            </div>
-            <div className="flex flex-col min-w-0">
-              <span className="text-xs font-bold text-slate-900 truncate">
-                Dr. Rajesh Mehta, MD
-              </span>
-              <span className="text-[11px] text-slate-500 truncate">
-                Endocrinologist • Regency Care
-              </span>
-            </div>
-          </div>
-          <span className="text-[11px] font-bold text-teal-800 bg-teal-50 px-2 py-0.5 rounded-full border border-teal-200/60 shrink-0">
-            98% Match
-          </span>
-        </div>
-      </div>
-
-      {/* Accuracy Consent Switch */}
-      <div className="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-xs flex items-start gap-3">
-        <input
-          type="checkbox"
-          id="accuracySwitch"
-          checked={saveCorrectionsConsent}
-          onChange={(e) => setSaveCorrectionsConsent(e.target.checked)}
-          className="mt-1 w-5 h-5 rounded text-teal-700 focus:ring-teal-600 accent-teal-700 shrink-0 cursor-pointer"
-        />
-        <label htmlFor="accuracySwitch" className="flex flex-col min-w-0 cursor-pointer">
-          <span className="text-xs font-bold text-slate-900">
-            Save corrections to help improve extraction accuracy for Sunita's records
-          </span>
-          <span className="text-[11px] text-slate-500 mt-0.5 leading-snug">
-            Helps Altrix Lab adapt to Dr. Rajesh Mehta's prescription format for faster future scans.
-          </span>
-        </label>
-      </div>
-
-      {/* Action Buttons */}
-      <div className="space-y-2 pt-2">
-        <button
-          type="button"
-          disabled={isSaving}
-          onClick={handleSaveToRecords}
-          className="w-full min-h-[48px] rounded-xl bg-teal-700 hover:bg-teal-800 text-white font-bold text-sm shadow-md shadow-teal-700/20 active:scale-[0.99] transition-all flex items-center justify-center gap-2 cursor-pointer"
-        >
-          {isSaving ? (
-            <>
-              <span className="material-symbols-outlined text-[20px] animate-spin">
-                progress_activity
-              </span>
-              <span>Securing to Sunita's Timeline...</span>
-            </>
-          ) : savedSuccess ? (
-            <>
-              <span className="material-symbols-outlined text-[20px]">task_alt</span>
-              <span>Saved Successfully!</span>
-            </>
-          ) : (
-            <>
-              <span className="material-symbols-outlined text-[20px]">verified</span>
-              <span>Confirm and save to records</span>
-            </>
-          )}
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setCurrentScreen('home')}
-          className="w-full min-h-[44px] text-xs font-semibold text-slate-500 hover:text-slate-800"
-        >
-          Re-upload or take another photo
-        </button>
-      </div>
-
-      {/* MANDATORY AI DISCLAIMER FOOTER */}
-      <AiDisclaimerFooter />
-
-      {/* Toast Feedback */}
-      {toastMessage && (
-        <div className="fixed bottom-20 left-1/2 -translate-x-1/2 bg-slate-900 text-white px-4 py-3 rounded-full text-xs font-semibold shadow-2xl flex items-center gap-2 z-50 animate-in fade-in duration-200">
-          <span className="material-symbols-outlined text-emerald-400 text-[18px]">check_circle</span>
-          <span>{toastMessage}</span>
-        </div>
+      {pendingDocuments.length > 0 && (
+        <section>
+          <h2 className="mb-2 text-sm font-semibold text-slate-900">Documents to process or retry</h2>
+          <ul className="divide-y divide-slate-200 border-y border-slate-200">
+            {pendingDocuments.map((document) => (
+              <li key={document.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
+                <div className="min-w-0"><p className="truncate text-sm font-medium text-slate-900">{document.file_name}</p><p className="text-xs text-slate-500">{document.processing_status}{document.error_message ? ` · ${document.error_message}` : ''}</p></div>
+                <button type="button" disabled={processing} onClick={() => void retry(document)} className="min-h-9 rounded-md border border-slate-300 px-3 text-xs font-semibold disabled:opacity-50">{document.processing_status === 'failed' ? 'Retry extraction' : 'Process now'}</button>
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
-    </div>
+
+      <section>
+        <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 className="text-base font-semibold text-slate-900">Pending candidate facts</h2>
+            <p className="mt-1 text-sm text-slate-600">Confirmation creates a verified record; rejection does not. Nothing is promoted automatically.</p>
+          </div>
+          <button type="button" onClick={() => void loadReviewData()} className="min-h-9 rounded-md border border-slate-300 px-3 text-xs font-semibold">Refresh</button>
+        </div>
+        {loading ? <p role="status" className="py-8 text-center text-sm text-slate-500">Loading candidates…</p> : facts.length === 0 ? (
+          <p className="rounded-lg border border-dashed border-slate-300 p-6 text-sm text-slate-600">No pending candidates. Process a document to review extracted details.</p>
+        ) : (
+          <ul className="divide-y divide-slate-200 border-y border-slate-200">
+            {facts.map((fact) => {
+              const payload = fact.candidate_data ?? {};
+              const isObservation = fact.fact_type === 'observation';
+              const date = dateCorrections[fact.id] ?? candidateDate(fact);
+              const medicationDetails = [payload.strength, payload.dosage_instructions, payload.frequency, payload.duration]
+                .filter((value): value is string => typeof value === 'string' && value.length > 0);
+              return (
+                <li key={fact.id} className="py-5">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold uppercase text-teal-900">{fact.fact_type} candidate</p>
+                      <h3 className="mt-1 text-base font-semibold text-slate-900">{fact.display_name || fact.fact_value}</h3>
+                      <p className="mt-1 text-sm text-slate-800">Reported value: {fact.fact_value}{fact.fact_unit ? ` ${fact.fact_unit}` : ''}</p>
+                      {fact.reference_range && <p className="mt-1 text-sm text-slate-600">Printed reference/instructions: {fact.reference_range}</p>}
+                      {medicationDetails.length > 0 && <p className="mt-1 text-sm text-slate-600">{medicationDetails.join(' · ')}</p>}
+                      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
+                        <span>Source: {fact.source_document.file_name}{fact.page_number ? ` · page ${fact.page_number}` : ''}{fact.extraction_method ? ` · ${fact.extraction_method}` : ''}</span>
+                        <button type="button" onClick={() => void openDocument(fact.document_id)} className="font-semibold text-teal-900 underline">Open original</button>
+                      </div>
+                    </div>
+                    <div className="text-right text-xs text-slate-500">
+                      <p>OCR confidence: {fact.ocr_confidence === null ? 'unknown' : `${fact.ocr_confidence}%`}</p>
+                      <p>Extraction confidence: {fact.llm_confidence === null ? 'unknown' : `${Math.round(fact.llm_confidence * 100)}%`}</p>
+                      <p>Clinical review: pending</p>
+                    </div>
+                  </div>
+
+                  <blockquote className="mt-3 whitespace-pre-wrap border-l-2 border-teal-700 bg-slate-50 px-3 py-2 text-sm leading-relaxed text-slate-700">{fact.source_text}</blockquote>
+                  {fact.quality_flags.length > 0 && <p className="mt-2 text-xs text-amber-800">Needs attention: {fact.quality_flags.join(', ')}</p>}
+
+                  {isObservation && (
+                    <label className="mt-3 block max-w-xs text-xs font-semibold text-slate-700">
+                      Observation date from source report
+                      <input type="date" value={date} onChange={(event) => setDateCorrections((current) => ({ ...current, [fact.id]: event.target.value }))} className="mt-1 block min-h-10 w-full rounded-md border border-slate-300 px-3 text-sm font-normal" />
+                      {!date && <span className="mt-1 block font-normal text-amber-800">No date was extracted. Confirm only after entering the date shown in the source.</span>}
+                    </label>
+                  )}
+
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <button type="button" disabled={busyFact === fact.id} onClick={() => void review(fact, 'confirm')} className="min-h-10 rounded-md bg-teal-800 px-4 text-sm font-semibold text-white disabled:opacity-50">{busyFact === fact.id ? 'Saving…' : 'Confirm'}</button>
+                    <button type="button" disabled={busyFact === fact.id} onClick={() => void review(fact, 'reject')} className="min-h-10 rounded-md border border-rose-300 px-4 text-sm font-semibold text-rose-800 disabled:opacity-50">Reject</button>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
+
+      <p className="border-t border-slate-200 pt-4 text-xs leading-relaxed text-slate-500">Extraction can be incomplete or inaccurate. Compare candidate details with the source. Medication instructions are shown as extracted and are not treatment advice.</p>
+    </section>
   );
 };

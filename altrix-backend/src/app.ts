@@ -14,6 +14,7 @@ import summaryRoutes from './routes/summary.routes';
 import factsRoutes from './routes/facts.routes';
 import exportsRoutes from './routes/exports.routes';
 import conversationsRoutes from './routes/conversations.routes';
+import healthRecordsRoutes from './routes/health-records.routes';
 import { env } from './config/env';
 
 const app = express();
@@ -33,6 +34,7 @@ app.use('/api/documents', documentRoutes);
 app.use('/api/facts', factsRoutes);
 app.use('/api/exports', exportsRoutes);
 app.use('/api/health/timeline', timelineRoutes);
+app.use('/api/health/records', healthRecordsRoutes);
 app.use('/api/health/trends', trendsRoutes);
 app.use('/api/health/summary', summaryRoutes);
 

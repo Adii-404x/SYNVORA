@@ -1,0 +1,1 @@
+PATIENT: John Doe (Synthetic)\nDOB: 1980-01-01\nDATE: 2026-10-01\n\nLAB RESULTS:\n- Glucose (Fasting): 105 mg/dL (High)\n- HbA1c: 5.8% (Pre-diabetic)\n- LDL Cholesterol: 130 mg/dL (Elevated)\n- HDL Cholesterol: 45 mg/dL (Normal)\n\nNOTES: Patient is advised to improve diet and increase physical activity.

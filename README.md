@@ -40,3 +40,5 @@ The backend suite uses mocked Supabase and model responses, plus actual digital/
 ## Release State
 
 `https://github.com/Adii-404x/ALTRIX-LABS-` is the target repository. No deployment URL exists yet. The configured Supabase URL in the ignored local backend `.env` is a placeholder (`example.supabase.co`), so the database/Auth/Storage journey is not live-verified. Deployment also requires real Supabase project settings and a cloud-reachable model endpoint; local Ollama is not reachable from a cloud host by default. Do not use real patient records for demos.
+
+See [the staging deployment runbook](docs/deployment.md) for the Vercel/Render setup, environment variables, health checks and release gates.

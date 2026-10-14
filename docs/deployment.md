@@ -12,12 +12,12 @@ Vercel documents Vite builds and exposes build-time variables prefixed with `VIT
 ## Configure Staging
 
 1. Create a non-production Supabase project. Review migrations `0001` through `0007` and validate them on a disposable database before applying them to staging. Do not configure automated migration-on-deploy. Create the private `medical-documents` bucket with a 10 MB limit and PDF/JPEG/PNG/WebP allowlist. Confirm Storage policies and Auth redirect URLs for the eventual Vercel domain.
-2. Create a Render web service from the GitHub repository using `render.yaml`. Set the required `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, exact `FRONTEND_ORIGIN`, `OLLAMA_BASE_URL`, and `OLLAMA_MODEL` in Render's secret/environment settings. The model endpoint must be reachable from Render and require appropriate access controls. Do not expose it publicly without authentication. Only configure `SUPABASE_SERVICE_ROLE_KEY` if the server-side audit logger needs it; it must never be placed in frontend variables.
+2. Create a Render web service from the GitHub repository using `render.yaml`. The blueprint selects Render's free plan. Set `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, and the exact Vercel `FRONTEND_ORIGIN` when prompted. The free service may spin down when idle and can be slow on its first request; OCR may exceed its available resources. Only configure `SUPABASE_SERVICE_ROLE_KEY` if the server-side audit logger needs it; it must never be placed in frontend variables.
 3. Configure the Vercel project with the workspace root as its root directory and these build-time values:
    - `VITE_SUPABASE_URL`: staging project URL.
    - `VITE_SUPABASE_PUBLISHABLE_KEY`: staging publishable/anon key only.
    - `VITE_API_BASE_URL`: the Render API origin followed by `/api`.
-4. Deploy the API, record its HTTPS origin, then set that exact origin as `VITE_API_BASE_URL` and the Vercel origin as Render's `FRONTEND_ORIGIN`. Redeploy both after configuration changes.
+4. Deploy the API, record its HTTPS origin, then set that exact origin plus `/api` as `VITE_API_BASE_URL` and the Vercel origin as Render's `FRONTEND_ORIGIN`. Redeploy both after configuration changes.
 5. Verify `GET /api/health`, Auth registration/login, signed-in `/api/auth/me`, private bucket upload/read, candidate review, timeline, copilot and summary using synthetic records only. Test cross-user denial with two staging accounts before inviting demo users.
 
 ## Runtime Notes
@@ -26,7 +26,7 @@ Use Node.js 22 or newer for both projects. Render's service uses `npm ci`, `npm 
 
 PDF parsing/rendering and Tesseract.js run inside Node. Tesseract may fetch English traineddata on first use unless `TESSERACT_LANG_PATH` points to a provisioned compatible copy. Confirm the selected Render plan has enough memory/CPU and outbound access for that workload. Current OCR is English-only; handwriting, deskew/rotation preprocessing and dependable table structure are not supported or verified. Upload and per-document limits are described in [the OCR notes](../altrix-backend/docs/ocr.md).
 
-The checked-in model adapter targets Ollama. No hosted model endpoint or credentials are configured in this repository. A cloud deployment is not copilot-ready until the owner provisions and verifies a reachable model service. Do not place model credentials in Vercel.
+The checked-in model adapter targets Ollama. No hosted model endpoint or credentials are configured in this repository. The API can run without a model endpoint, but copilot, summary generation, and AI extraction will be unavailable until the owner provisions and configures a cloud-reachable model service in Render. Do not place model credentials in Vercel.
 
 ## Release Gate and Rollback
 

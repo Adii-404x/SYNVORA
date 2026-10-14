@@ -24,9 +24,13 @@ export const apiConfigured = (() => {
   }
 })();
 export const configurationMessage = !supabaseConfigured
-  ? 'Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY in .env.local.'
+  ? import.meta.env.PROD
+    ? 'This deployment is missing its Supabase settings. In Vercel, open Project Settings → Environment Variables and set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY for Production, then redeploy.'
+    : 'Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY in .env.local.'
   : !apiConfigured
-    ? 'Set VITE_API_BASE_URL to the backend API origin ending in /api.'
+    ? import.meta.env.PROD
+      ? 'This deployment is missing its API URL. In Vercel, set VITE_API_BASE_URL to your hosted backend URL ending in /api, then redeploy.'
+      : 'Set VITE_API_BASE_URL to the backend API origin ending in /api.'
     : '';
 export const supabase = supabaseConfigured
   ? createClient(supabaseUrl!, publishableKey!, {

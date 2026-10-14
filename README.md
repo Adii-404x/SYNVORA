@@ -17,6 +17,8 @@ The repository includes a root-level `vercel.json` configured for the Vite singl
 
 Vercel's `VITE_*` values are embedded in the public browser bundle. Only the Supabase publishable/anon key belongs there. Keep Supabase secret keys and any model credentials in the API host's server-side environment.
 
+If the sign-in screen reports missing configuration on the deployed site, add the three variables above under **Vercel → Project Settings → Environment Variables** for **Production**, then redeploy. A local `.env.local` file is not uploaded to Vercel.
+
 ## Local development
 
 Use Node.js 22 or newer.

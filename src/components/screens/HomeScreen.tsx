@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { useLanguage } from '../../context/LanguageContext';
+import { useApp } from '../../context/AppContext';
 import { api, CandidateFact, HealthDocument, VerifiedHealthRecords } from '../../services/api';
 
 function formatDate(value: string) {
@@ -8,7 +8,7 @@ function formatDate(value: string) {
 }
 
 export const HomeScreen: React.FC = () => {
-  const { setCurrentScreen } = useLanguage();
+  const { setCurrentScreen } = useApp();
   const [documents, setDocuments] = useState<HealthDocument[]>([]);
   const [pending, setPending] = useState<CandidateFact[]>([]);
   const [records, setRecords] = useState<VerifiedHealthRecords | null>(null);

@@ -106,7 +106,7 @@ export const INITIAL_ACTIVITY_LOGS: ActivityLogItem[] = [
     action: 'Created 7-day secure link for Dr. Rajiv',
     recordTitle: '2 Health Documents',
     timestamp: '12 Oct 2024, 09:30 AM',
-    device: 'Altrix Mobile App • iPhone 15',
+    device: 'Synvora Mobile App • iPhone 15',
     location: 'New Delhi, India',
     status: 'Authorized'
   },
@@ -128,7 +128,7 @@ export const INITIAL_ACTIVITY_LOGS: ActivityLogItem[] = [
     action: 'Biometric sign-in via Face ID',
     recordTitle: 'Account Security Session',
     timestamp: '12 Oct 2024, 08:30 AM',
-    device: 'Altrix Mobile App • iPhone 15',
+    device: 'Synvora Mobile App • iPhone 15',
     location: 'New Delhi, India',
     status: 'Authorized'
   },

@@ -1,15 +1,15 @@
 /**
- * Bilingual localization strings (English & Hindi) for Altrix Lab
+ * Bilingual localization strings (English & Hindi) for Synvora
  * Following calm and reassuring tone, zero fear-inducing language.
  */
 
 export const t = {
   en: {
-    appName: 'Altrix Lab',
+    appName: 'Synvora',
     tagline: 'Patient Health Portal',
     greeting: 'Namaste, Sunita ji',
     syncActive: 'Sync: Active',
-    aiFooterDisclaimer: 'Altrix Lab gives information, not medical advice or a diagnosis.',
+    aiFooterDisclaimer: 'Synvora gives information, not medical advice or a diagnosis.',
 
     // Navigation
     navHome: 'Home',
@@ -20,7 +20,7 @@ export const t = {
 
     // Screen 1: Consent Onboarding
     consentTitle: 'Your Health Data, Your Choice',
-    consentSubtitle: 'Before we begin, here is exactly how Altrix Lab handles your health documents in simple words.',
+    consentSubtitle: 'Before we begin, here is exactly how Synvora handles your health documents in simple words.',
     consentPoint1Title: 'What data is collected',
     consentPoint1Desc: 'Only the lab reports, doctor prescriptions, and health readings you choose to upload or connect.',
     consentPoint2Title: 'Why it is collected',
@@ -62,7 +62,7 @@ export const t = {
     maskSensitiveDesc: 'Blurs sensitive markers on screen until you tap to view.',
 
     // Screen 3: Secure Sign-in
-    signInTitle: 'Welcome to Altrix Lab',
+    signInTitle: 'Welcome to Synvora',
     signInSubtitle: 'Enter your mobile number to receive a secure one-time passcode.',
     phoneLabel: 'Mobile Number',
     otpLabel: 'Enter 6-digit OTP',
@@ -128,7 +128,7 @@ export const t = {
     downloadingState: 'Preparing encrypted archive...',
     downloadReady: 'Archive ready for download (2.4 MB)',
     deleteSectionTitle: 'Delete my account and data',
-    deleteSectionDesc: 'Permanently remove all your personal health data from Altrix Lab. This action is irreversible.',
+    deleteSectionDesc: 'Permanently remove all your personal health data from Synvora. This action is irreversible.',
     deleteRequestBtn: 'Delete my account and data',
     deleteModalStep1Title: 'Delete all records & account?',
     deleteModalStep1Desc: 'We believe you should have complete ownership over your health information. Here is what will happen if you proceed:',
@@ -163,11 +163,11 @@ export const t = {
   },
 
   hi: {
-    appName: 'ऑल्ट्रिक्स लैब',
+    appName: 'Synvora',
     tagline: 'रोगी स्वास्थ्य पोर्टल',
     greeting: 'नमस्ते, सुनीता जी',
     syncActive: 'सिंक: सक्रिय',
-    aiFooterDisclaimer: 'Altrix Lab केवल जानकारी प्रदान करता है, कोई चिकित्सकीय सलाह या निदान नहीं।',
+    aiFooterDisclaimer: 'Synvora केवल जानकारी प्रदान करता है, कोई चिकित्सकीय सलाह या निदान नहीं।',
 
     // Navigation
     navHome: 'होम',

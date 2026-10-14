@@ -170,7 +170,7 @@ export const ReportBreakdownScreen: React.FC = () => {
             <div>
               <div className="flex items-center gap-1.5">
                 <span className="text-xs font-bold text-slate-900 leading-tight">
-                  Altrix AI Care Assist
+                  Synvora AI Care Assist
                 </span>
                 <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-teal-100 text-teal-800">
                   Audio Summary

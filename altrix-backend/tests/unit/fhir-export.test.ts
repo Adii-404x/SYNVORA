@@ -5,7 +5,7 @@ import { VerifiedRecords } from '../../src/services/verified-records.service';
 const records: VerifiedRecords = {
   observations: [{
     id: 'observation-1', factId: 'fact-1', name: 'Original lab label', date: '2026-02-03',
-    value: '5.40', unit: 'mmol/L', referenceRange: '4.0-6.0 mmol/L',
+    value: '5.40', unit: 'mmol/L', referenceRange: '4.0-6.0 mmol/L', interpretation: 'H',
   }],
   medications: [
     {
@@ -40,6 +40,14 @@ describe('FhirExportService', () => {
       code: { text: 'Original lab label' },
       valueQuantity: { value: 5.4, unit: 'mmol/L' },
       referenceRange: [{ text: '4.0-6.0 mmol/L' }],
+      interpretation: [{
+        coding: [{
+          system: 'http://terminology.hl7.org/CodeSystem/v3-ObservationInterpretation',
+          code: 'H',
+          display: 'High',
+        }],
+        text: 'H',
+      }],
       derivedFrom: [{ reference: 'DocumentReference/document-1' }],
       note: [{ text: 'Page 1: Original lab line' }],
     });
@@ -56,7 +64,7 @@ describe('FhirExportService', () => {
   it('does not invent a clinical code or numeric value for unparseable reported text', async () => {
     const textValueRecords: VerifiedRecords = {
       ...records,
-      observations: [{ ...records.observations[0], value: 'positive' }],
+      observations: [{ ...records.observations[0], value: 'positive', interpretation: 'borderline high' }],
       medications: [],
     };
     const service = new FhirExportService({ getForUser: vi.fn().mockResolvedValue(textValueRecords) } as never);
@@ -66,6 +74,7 @@ describe('FhirExportService', () => {
     expect(observation.code).toEqual({ text: 'Original lab label' });
     expect(observation.valueString).toBe('positive');
     expect(observation.valueQuantity).toBeUndefined();
+    expect(observation.interpretation).toEqual([{ text: 'borderline high' }]);
   });
 
   it('omits records whose provenance source is unavailable', async () => {

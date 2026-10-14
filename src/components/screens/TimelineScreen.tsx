@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { useLanguage } from '../../context/LanguageContext';
+import { useApp } from '../../context/AppContext';
 import { api, TimelineEntry, VerifiedHealthRecords } from '../../services/api';
 
 type Filter = 'all' | TimelineEntry['type'];
@@ -11,7 +11,7 @@ function formatDate(value: string) {
 }
 
 export const TimelineScreen: React.FC = () => {
-  const { setCurrentScreen } = useLanguage();
+  const { setCurrentScreen } = useApp();
   const [entries, setEntries] = useState<TimelineEntry[]>([]);
   const [records, setRecords] = useState<VerifiedHealthRecords | null>(null);
   const [filter, setFilter] = useState<Filter>('all');

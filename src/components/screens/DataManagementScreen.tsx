@@ -86,7 +86,7 @@ export const DataManagementScreen: React.FC = () => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `altrix-lab-sunita-sharma-export.json`;
+    a.download = `synvora-health-records-export.json`;
     a.click();
     URL.revokeObjectURL(url);
 

@@ -271,7 +271,7 @@ export const PrivacyHubScreen: React.FC = () => {
           privacy_tip
         </span>
         <p className="text-xs text-slate-600 leading-relaxed">
-          Altrix Lab adheres strictly to Indian Digital Health guidelines (ABDM) and international health record privacy principles. Your data is stored in encrypted facilities located in India.
+          Synvora follows Indian Digital Health guidelines (ABDM) and international health record privacy principles. Your data is stored in encrypted facilities located in India.
         </p>
       </div>
     </div>

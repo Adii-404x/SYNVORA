@@ -1,5 +1,5 @@
-import React from 'react';
-import { LanguageProvider, useLanguage } from './context/LanguageContext';
+import React, { useEffect } from 'react';
+import { AppProvider, useApp } from './context/AppContext';
 import { Header } from './components/layout/Header';
 import { BottomNavigation, DesktopSidebar } from './components/layout/Navigation';
 
@@ -12,8 +12,12 @@ import { SignInScreen as AuthenticationScreen } from './components/screens/SignI
 import { LoadingSkeleton } from './components/common/LoadingSkeleton';
 
 const MainAppContent: React.FC = () => {
-  const { currentScreen, seniorMode } = useLanguage();
+  const { currentScreen, seniorMode, setCurrentScreen } = useApp();
   const { session, ready } = useAuth();
+
+  useEffect(() => {
+    if (!session) setCurrentScreen('home');
+  }, [session, setCurrentScreen]);
 
   if (!ready) {
     return <div className="min-h-screen bg-[#FAF8FF] px-4 py-12"><LoadingSkeleton type="detail" count={2} /></div>;
@@ -63,8 +67,8 @@ const MainAppContent: React.FC = () => {
 
 export default function App() {
   return (
-    <LanguageProvider>
+    <AppProvider>
       <MainAppContent />
-    </LanguageProvider>
+    </AppProvider>
   );
 }

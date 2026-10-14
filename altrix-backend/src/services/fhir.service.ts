@@ -85,6 +85,7 @@ export class FhirExportService {
           ? { valueString: String(item.value ?? '') }
           : { valueQuantity: { value, ...(item.unit ? { unit: item.unit } : {}) } }),
         ...(item.referenceRange ? { referenceRange: [{ text: item.referenceRange }] } : {}),
+        ...(item.interpretation ? { interpretation: [this.toObservationInterpretation(item.interpretation)] } : {}),
         derivedFrom: [{ reference: `DocumentReference/${source.documentId}` }],
         note: [{ text: source.pageNumber ? `Page ${source.pageNumber}: ${source.evidence}` : source.evidence }],
       });
@@ -125,6 +126,26 @@ export class FhirExportService {
     if (status === 'active' || status === 'completed') return status;
     if (status === 'discontinued') return 'stopped';
     return undefined;
+  }
+
+  private toObservationInterpretation(flag: string) {
+    const normalizedFlag = flag.trim().toUpperCase();
+    const standardDisplay = normalizedFlag === 'H'
+      ? 'High'
+      : normalizedFlag === 'L'
+        ? 'Low'
+        : undefined;
+
+    return standardDisplay
+      ? {
+        coding: [{
+          system: 'http://terminology.hl7.org/CodeSystem/v3-ObservationInterpretation',
+          code: normalizedFlag,
+          display: standardDisplay,
+        }],
+        text: flag,
+      }
+      : { text: flag };
   }
 
   private validateBundle(bundle: FhirBundle) {

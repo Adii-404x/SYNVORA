@@ -3,6 +3,8 @@ import { useAuth } from '../../context/AuthContext';
 
 export const SignInScreen: React.FC = () => {
   const { configured, configurationMessage, signIn, signUp } = useAuth();
+  const judgeDemoEmail = import.meta.env.VITE_JUDGE_DEMO_EMAIL?.trim();
+  const judgeDemoPassword = import.meta.env.VITE_JUDGE_DEMO_PASSWORD?.trim();
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -35,8 +37,8 @@ export const SignInScreen: React.FC = () => {
     <main className="min-h-[calc(100vh-4rem)] flex items-center justify-center px-4 py-10">
       <section className="w-full max-w-md bg-white rounded-2xl border border-slate-200 shadow-sm p-6 sm:p-8">
         <div className="text-center mb-7">
-          <span aria-hidden="true" className="mx-auto mb-4 grid size-12 place-items-center rounded-lg bg-teal-800 text-xl font-bold text-white">A</span>
-          <h1 className="text-2xl font-bold text-slate-900">{isSignUp ? 'Create your account' : 'Sign in to Altrix Labs'}</h1>
+          <img src="/synvora-app-icon.jpeg" alt="" className="mx-auto mb-4 size-16 rounded-xl object-cover" />
+          <h1 className="text-2xl font-bold text-slate-900">{isSignUp ? 'Create your account' : 'Sign in to Synvora'}</h1>
           <p className="text-sm text-slate-600 mt-2">Your health records stay scoped to your authenticated account.</p>
         </div>
 
@@ -47,6 +49,20 @@ export const SignInScreen: React.FC = () => {
         )}
         {error && <div role="alert" className="mb-5 rounded-xl border border-rose-300 bg-rose-50 p-3 text-sm text-rose-900">{error}</div>}
         {notice && <div role="status" className="mb-5 rounded-xl border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-900">{notice}</div>}
+        {!isSignUp && judgeDemoEmail && judgeDemoPassword && (
+          <button
+            type="button"
+            onClick={() => {
+              setEmail(judgeDemoEmail);
+              setPassword(judgeDemoPassword);
+              setError('');
+              setNotice('');
+            }}
+            className="mb-5 min-h-11 w-full rounded-lg border border-teal-700 px-4 text-sm font-semibold text-teal-900 hover:bg-teal-50"
+          >
+            Use judge demo account
+          </button>
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <label className="block text-sm font-semibold text-slate-800">
@@ -85,7 +101,7 @@ export const SignInScreen: React.FC = () => {
         </form>
 
         <p className="mt-5 text-center text-sm text-slate-600">
-          {isSignUp ? 'Already registered?' : 'New to Altrix Labs?'}{' '}
+          {isSignUp ? 'Already registered?' : 'New to Synvora?'}{' '}
           <button
             type="button"
             onClick={() => { setIsSignUp((value) => !value); setError(''); setNotice(''); }}

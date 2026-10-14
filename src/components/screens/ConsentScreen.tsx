@@ -3,7 +3,6 @@ import { useLanguage } from '../../context/LanguageContext';
 import { LoadingSkeleton } from '../common/LoadingSkeleton';
 import { EmptyState } from '../common/EmptyState';
 import { ErrorState } from '../common/ErrorState';
-import { APP_ASSETS } from '../../data/mockData';
 
 export const ConsentScreen: React.FC = () => {
   const { lang, setLang, translations, setCurrentScreen, screenState, setScreenState } =
@@ -57,8 +56,8 @@ export const ConsentScreen: React.FC = () => {
       {/* Top Bar with Language Toggle */}
       <div className="flex items-center justify-between pb-1">
         <div className="flex items-center gap-2">
-          <img src={APP_ASSETS.logo} alt="Altrix Lab" className="h-8 w-auto object-contain" />
-          <span className="text-sm font-extrabold text-teal-800">Altrix Lab</span>
+          <img src="/synvora-app-icon.jpeg" alt="" className="h-8 w-8 rounded-md object-cover" />
+          <span className="text-sm font-extrabold text-teal-800">Synvora</span>
         </div>
 
         {/* Language toggle English | हिन्दी */}

@@ -11,7 +11,7 @@ describe('TimelineService', () => {
     vi.mocked(verifiedRecordsService.getForUser).mockResolvedValue({
       observations: [{
         id: 'observation-1', factId: 'fact-1', name: 'Glucose', date: '2026-01-05',
-        value: '5.4', unit: 'mmol/L', referenceRange: '3.9-5.5',
+        value: '5.4', unit: 'mmol/L', referenceRange: '3.9-5.5', interpretation: null,
       }],
       medications: [],
       sources: [{

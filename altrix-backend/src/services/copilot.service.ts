@@ -1,9 +1,9 @@
 import { SupabaseClient } from '@supabase/supabase-js';
-import { HEALTH_COPILOT_SYSTEM_PROMPT } from '../prompts/health-copilot.prompt';
 import { groundedAnswerSchema } from '../schemas/copilot.schema';
 import { ApiError } from '../utils/api-error';
 import { verifiedRecordsService } from './verified-records.service';
 import { llmService } from './llm/llm.service';
+import { HEALTH_COPILOT_SYSTEM_PROMPT } from '../prompts/health-copilot.prompt';
 
 export class CopilotService {
   constructor(

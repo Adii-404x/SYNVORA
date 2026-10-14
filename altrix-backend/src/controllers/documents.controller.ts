@@ -196,7 +196,7 @@ export class DocumentsController {
 
       if (updateError) throw new ApiError(500, 'Failed to update document status', true, updateError);
 
-      return res.status(200).json({
+          return res.status(200).json({
         success: true,
         data: {
           documentId,

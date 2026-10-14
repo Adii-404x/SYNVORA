@@ -20,7 +20,7 @@ describe('VerifiedRecordsService', () => {
         value: 105,
         original_value: '105.0',
         unit: 'mg/dL',
-        interpretation: null,
+        interpretation: 'H',
       }]),
       medications: makeQuery([]),
       extracted_facts: makeQuery([{
@@ -46,6 +46,7 @@ describe('VerifiedRecordsService', () => {
       value: '105.0',
       unit: 'mg/dL',
       referenceRange: '70-99 mg/dL',
+      interpretation: 'H',
     }]);
     expect(result.sources).toEqual([{
       factId: 'fact-1',

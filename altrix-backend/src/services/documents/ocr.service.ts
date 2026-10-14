@@ -1,10 +1,15 @@
 import Tesseract from 'tesseract.js';
+import path from 'node:path';
 import { OcrBlock } from '../../types';
 import { validateImagePixelLimit } from '../../utils/image-limits';
 import { env } from '../../config/env';
 import { ApiError } from '../../utils/api-error';
 
 const OCR_TIMEOUT_MS = 30_000;
+const BUNDLED_ENGLISH_DATA = path.join(
+  path.dirname(require.resolve('@tesseract.js-data/eng')),
+  '4.0.0_best_int',
+);
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -63,14 +68,14 @@ export class OcrService {
         blocks,
         qualityFlags,
       };
-    } catch {
+    } catch (error) {
       const workerPromise = this.workerPromise;
       this.workerPromise = null;
       const worker = await workerPromise?.catch(() => undefined);
       if (worker) {
         try { await worker.terminate(); } catch { /* discard an unhealthy worker */ }
       }
-      throw new Error('OCR processing failed or exceeded its time limit');
+      throw new Error('OCR processing failed or exceeded its time limit', { cause: error });
     }
   }
 
@@ -81,9 +86,12 @@ export class OcrService {
       const workerFailure = new Promise<never>((_, reject) => { rejectWorkerFailure = reject; });
       const creation = Promise.race([
         Tesseract.createWorker('eng', 1, {
-          langPath: env.TESSERACT_LANG_PATH,
+          langPath: env.TESSERACT_LANG_PATH ?? BUNDLED_ENGLISH_DATA,
+          gzip: true,
           logger: () => undefined,
-          errorHandler: () => rejectWorkerFailure(new Error('OCR worker initialization failed')),
+          errorHandler: (error: unknown) => rejectWorkerFailure(
+            error instanceof Error ? error : new Error(String(error)),
+          ),
         }),
         workerFailure,
       ]).then((worker) => {

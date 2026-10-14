@@ -14,7 +14,15 @@ function makeService(answer: unknown) {
   const llm = { chat: vi.fn().mockResolvedValue({ content: JSON.stringify(answer), uncertainty: false }) };
   const records = {
     getForUser: vi.fn().mockResolvedValue({
-      observations: [{ factId, name: 'Glucose', date: '2026-01-05', value: 105, unit: 'mg/dL', referenceRange: '70-99' }],
+      observations: [{
+        factId,
+        name: 'Glucose',
+        date: '2026-01-05',
+        value: 105,
+        unit: 'mg/dL',
+        referenceRange: '70-99',
+        interpretation: 'H',
+      }],
       medications: [],
       sources: [source],
     }),
@@ -35,6 +43,8 @@ describe('CopilotService', () => {
       p_conversation_id: null, p_user_id: 'user-1', p_user_message: 'What was my result?',
     }));
     expect(llm.chat).toHaveBeenCalledWith(expect.objectContaining({ responseFormat: 'json' }));
+    expect(llm.chat.mock.calls[0][0].systemPrompt).toContain('source does not provide enough context');
+    expect(llm.chat.mock.calls[0][0].prompt).toContain('"interpretation":"H"');
   });
 
   it('rejects model citations outside the retrieved source set', async () => {

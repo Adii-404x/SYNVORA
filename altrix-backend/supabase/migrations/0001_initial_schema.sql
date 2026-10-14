@@ -126,3 +126,33 @@ CREATE INDEX idx_copilot_conv_user ON copilot_conversations(user_id);
 CREATE INDEX idx_copilot_msg_conv ON copilot_messages(conversation_id);
 CREATE INDEX idx_audit_entity ON audit_logs(entity_type, entity_id);
 
+GRANT USAGE ON SCHEMA public TO authenticated;
+REVOKE ALL ON
+    public.profiles,
+    public.health_documents,
+    public.extraction_runs,
+    public.extracted_facts,
+    public.observations,
+    public.medications,
+    public.copilot_conversations,
+    public.copilot_messages,
+    public.audit_logs
+FROM PUBLIC, anon, authenticated;
+
+GRANT SELECT, UPDATE ON public.profiles TO authenticated;
+GRANT SELECT, INSERT, UPDATE ON
+    public.health_documents,
+    public.extraction_runs,
+    public.extracted_facts
+TO authenticated;
+GRANT SELECT ON
+    public.observations,
+    public.medications,
+    public.copilot_conversations,
+    public.copilot_messages,
+    public.audit_logs
+TO authenticated;
+
+GRANT USAGE ON SCHEMA storage TO authenticated;
+REVOKE ALL ON storage.objects FROM PUBLIC, anon, authenticated;
+GRANT SELECT, INSERT, DELETE ON storage.objects TO authenticated;

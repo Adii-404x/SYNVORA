@@ -1,5 +1,5 @@
 import React, { ChangeEvent, useCallback, useEffect, useRef, useState } from 'react';
-import { useLanguage } from '../../context/LanguageContext';
+import { useApp } from '../../context/AppContext';
 import { api, CandidateFact, HealthDocument } from '../../services/api';
 
 const acceptedTypes = new Set(['application/pdf', 'image/jpeg', 'image/png', 'image/webp']);
@@ -13,13 +13,45 @@ function candidateDate(fact: CandidateFact) {
   return dateInputValue(fact.fact_date) || dateInputValue(fact.candidate_data?.date);
 }
 
+async function prepareImage(file: File): Promise<File> {
+  if (!file.type.startsWith('image/') || typeof createImageBitmap !== 'function') return file;
+
+  const bitmap = await createImageBitmap(file);
+  const pixels = bitmap.width * bitmap.height;
+  if (pixels <= 20_000_000 && file.size <= maxFileSize) {
+    bitmap.close();
+    return file;
+  }
+
+  const scale = Math.min(1, Math.sqrt(18_000_000 / pixels));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.floor(bitmap.width * scale));
+  canvas.height = Math.max(1, Math.floor(bitmap.height * scale));
+  const context = canvas.getContext('2d');
+  if (!context) {
+    bitmap.close();
+    throw new Error('This browser could not prepare the photo. Choose a smaller image and try again.');
+  }
+  context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close();
+
+  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.86));
+  if (!blob) throw new Error('This photo could not be prepared. Choose another image and try again.');
+  return new File([blob], file.name.replace(/\.[^.]+$/, '') + '.jpg', {
+    type: 'image/jpeg',
+    lastModified: file.lastModified,
+  });
+}
+
 export const UploadDocumentScreen: React.FC = () => {
-  const { setCurrentScreen } = useLanguage();
+  const { setCurrentScreen } = useApp();
   const inputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
   const [facts, setFacts] = useState<CandidateFact[]>([]);
   const [documents, setDocuments] = useState<HealthDocument[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedName, setSelectedName] = useState('');
+  const [preparingPhoto, setPreparingPhoto] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [processing, setProcessing] = useState(false);
   const [activeDocument, setActiveDocument] = useState<HealthDocument | null>(null);
@@ -55,7 +87,20 @@ export const UploadDocumentScreen: React.FC = () => {
       event.target.value = '';
       return;
     }
-    if (file.size <= 0 || file.size > maxFileSize) {
+
+    setPreparingPhoto(file.type.startsWith('image/'));
+    let uploadFile: File;
+    try {
+      uploadFile = await prepareImage(file);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'This photo could not be prepared. Try another image.');
+      setPreparingPhoto(false);
+      event.target.value = '';
+      return;
+    }
+    setPreparingPhoto(false);
+    setSelectedName(uploadFile.name);
+    if (uploadFile.size <= 0 || uploadFile.size > maxFileSize) {
       setError('The file must be smaller than 10 MB.');
       event.target.value = '';
       return;
@@ -63,8 +108,10 @@ export const UploadDocumentScreen: React.FC = () => {
 
     setUploadProgress(0);
     setProcessing(false);
+    let uploadedDocument: HealthDocument | null = null;
     try {
-      const document = await api.uploadDocument(file, setUploadProgress);
+      const document = await api.uploadDocument(uploadFile, setUploadProgress);
+      uploadedDocument = document;
       setActiveDocument(document);
       setUploadProgress(null);
       setProcessing(true);
@@ -75,6 +122,14 @@ export const UploadDocumentScreen: React.FC = () => {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'The document could not be processed.');
       await loadReviewData();
+      if (uploadedDocument) {
+        try {
+          const latestDocuments = await api.getDocuments();
+          setActiveDocument(latestDocuments.find((item) => item.id === uploadedDocument?.id) ?? uploadedDocument);
+        } catch {
+          // Keep the saved upload visible even when its latest status cannot be refreshed.
+        }
+      }
     } finally {
       setUploadProgress(null);
       setProcessing(false);
@@ -152,9 +207,16 @@ export const UploadDocumentScreen: React.FC = () => {
             <h2 className="text-base font-semibold text-slate-900">Upload medical document</h2>
             <p className="mt-1 text-sm text-slate-600">PDF, JPEG, PNG, or WebP · 10 MB maximum</p>
           </div>
-          <input ref={inputRef} type="file" accept="application/pdf,image/jpeg,image/png,image/webp" onChange={(event) => void handleFile(event)} className="block max-w-full text-sm text-slate-700 file:mr-3 file:min-h-10 file:rounded-md file:border-0 file:bg-teal-800 file:px-4 file:text-sm file:font-semibold file:text-white" disabled={uploadProgress !== null || processing} />
+          <input ref={inputRef} type="file" accept="application/pdf,image/jpeg,image/png,image/webp" onChange={(event) => void handleFile(event)} className="sr-only" disabled={uploadProgress !== null || processing} />
+          <input ref={cameraInputRef} type="file" accept="image/jpeg,image/png,image/webp" capture="environment" onChange={(event) => void handleFile(event)} className="sr-only" disabled={uploadProgress !== null || processing} />
+          <div className="flex flex-wrap gap-2">
+            <button type="button" disabled={preparingPhoto || uploadProgress !== null || processing} onClick={() => inputRef.current?.click()} className="min-h-11 rounded-md border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50">Choose a file</button>
+            <button type="button" disabled={preparingPhoto || uploadProgress !== null || processing} onClick={() => cameraInputRef.current?.click()} className="min-h-11 rounded-md bg-teal-800 px-4 text-sm font-semibold text-white hover:bg-teal-900 disabled:opacity-50">Take a report photo</button>
+          </div>
         </div>
+        <p className="mt-2 text-xs text-slate-500">On a phone, photo capture opens the rear camera. On a computer, choose an image file. PDF, JPEG, PNG, and WebP are supported up to 10 MB.</p>
         {selectedName && <p className="mt-3 truncate text-sm text-slate-700">{selectedName}</p>}
+        {preparingPhoto && <p role="status" className="mt-3 text-sm text-slate-700">Preparing the photo for secure upload…</p>}
         {uploadProgress !== null && (
           <div className="mt-3" aria-live="polite">
             <div className="flex justify-between text-xs text-slate-600"><span>Uploading</span><span>{uploadProgress}%</span></div>

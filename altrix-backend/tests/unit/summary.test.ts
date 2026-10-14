@@ -12,7 +12,15 @@ function makeService(response: unknown) {
   const llm = { chat: vi.fn().mockResolvedValue({ content: JSON.stringify(response), uncertainty: false }) };
   const records = {
     getForUser: vi.fn().mockResolvedValue({
-      observations: [{ factId: source.factId, name: 'Glucose', date: '2026-01-05', value: 105, unit: 'mg/dL' }],
+      observations: [{
+        factId: source.factId,
+        name: 'Glucose',
+        date: '2026-01-05',
+        value: 105,
+        unit: 'mg/dL',
+        referenceRange: '70-99 mg/dL',
+        interpretation: 'H',
+      }],
       medications: [],
       sources: [source],
     }),
@@ -38,6 +46,17 @@ describe('SummaryService', () => {
     expect(result.summary).toContain('glucose result');
     expect(result.sources).toEqual([source]);
     expect(result.uncertainty).toBe(false);
+  });
+
+  it('asks for a cautious plain-language explanation of source-reported flags', async () => {
+    const { service, llm } = makeService({ answer: 'The report marks this result high.', citations: [source.factId], uncertainty: false });
+
+    await service.generateSummary('user-1', {} as never);
+
+    expect(llm.chat).toHaveBeenCalledWith(expect.objectContaining({
+      systemPrompt: expect.stringContaining('source-reported high/low/abnormal flag'),
+      prompt: expect.stringContaining('"interpretation":"H"'),
+    }));
   });
 
   it('rejects citations absent from the retrieved records', async () => {

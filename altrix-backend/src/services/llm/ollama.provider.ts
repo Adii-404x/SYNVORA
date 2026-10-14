@@ -15,13 +15,14 @@ export class OllamaProvider implements ILLMProvider {
           prompt: request.prompt,
           system: request.systemPrompt,
           format: request.responseFormat,
+          think: false,
           stream: false,
           options: {
             temperature: request.temperature ?? 0.2,
             num_predict: request.maxTokens ?? 1024,
           },
         }),
-        signal: AbortSignal.timeout(30000),
+        signal: AbortSignal.timeout(120_000),
       });
 
       if (!response.ok) {
@@ -42,4 +43,3 @@ export class OllamaProvider implements ILLMProvider {
     }
   }
 }
-

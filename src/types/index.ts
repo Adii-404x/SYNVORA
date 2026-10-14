@@ -1,5 +1,5 @@
 /**
- * Types and interfaces for Altrix Lab Patient Privacy & Health Portal
+ * Types and interfaces for the Synvora patient health portal
  */
 
 export type Language = 'en' | 'hi';

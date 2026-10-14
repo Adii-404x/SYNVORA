@@ -1,5 +1,5 @@
 import React from 'react';
-import { useLanguage } from '../../context/LanguageContext';
+import { useApp } from '../../context/AppContext';
 import { useAuth } from '../../context/AuthContext';
 import { ScreenId } from '../../types';
 
@@ -12,7 +12,7 @@ const items: { id: ScreenId; label: string; icon: string }[] = [
 ];
 
 export const BottomNavigation: React.FC = () => {
-  const { currentScreen, setCurrentScreen } = useLanguage();
+  const { currentScreen, setCurrentScreen } = useApp();
 
   return (
     <nav aria-label="Primary" className="lg:hidden fixed bottom-0 inset-x-0 z-40 pb-safe bg-white/95 backdrop-blur border-t border-slate-200">
@@ -35,7 +35,7 @@ export const BottomNavigation: React.FC = () => {
 };
 
 export const DesktopSidebar: React.FC = () => {
-  const { currentScreen, setCurrentScreen } = useLanguage();
+  const { currentScreen, setCurrentScreen } = useApp();
   const { session } = useAuth();
   const email = session?.user.email || 'Signed-in account';
   const initial = email.slice(0, 1).toUpperCase();

@@ -157,7 +157,7 @@ export const CareToolsScreen: React.FC<{ mode: Mode }> = ({ mode }) => {
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = 'altrix-health-records-fhir-r4.json';
+      link.download = 'synvora-health-records-fhir-r4.json';
       link.click();
       URL.revokeObjectURL(url);
       setNotice('FHIR R4 bundle downloaded from verified records.');

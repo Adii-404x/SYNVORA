@@ -56,6 +56,7 @@ export interface VerifiedObservation {
   value: number | string | null;
   unit: string | null;
   referenceRange: string | null;
+  interpretation: string | null;
 }
 
 export interface VerifiedMedication {
@@ -157,7 +158,8 @@ export class VerifiedRecordsService {
         date: row.observation_date,
         value: row.original_value ?? row.value,
         unit: row.unit,
-        referenceRange: fact?.reference_range ?? row.interpretation,
+        referenceRange: fact?.reference_range ?? null,
+        interpretation: row.interpretation,
       }] : [];
     });
 

@@ -3,8 +3,8 @@ import { useAuth } from '../../context/AuthContext';
 
 export const SignInScreen: React.FC = () => {
   const { configured, configurationMessage, signIn, signUp } = useAuth();
-  const judgeDemoEmail = import.meta.env.VITE_JUDGE_DEMO_EMAIL?.trim();
-  const judgeDemoPassword = import.meta.env.VITE_JUDGE_DEMO_PASSWORD?.trim();
+  const judgeDemoEmail = import.meta.env.VITE_JUDGE_DEMO_EMAIL?.trim() || 'alex.morgan@example.com';
+  const judgeDemoPassword = import.meta.env.VITE_JUDGE_DEMO_PASSWORD?.trim() || 'DemoTrial2026!';
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -42,14 +42,15 @@ export const SignInScreen: React.FC = () => {
           <p className="text-sm text-slate-600 mt-2">Your health records stay scoped to your authenticated account.</p>
         </div>
 
-        {!configured && (
-          <div role="alert" className="mb-5 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
-            {configurationMessage}
+        {configurationMessage && (
+          <div role="status" className="mb-5 rounded-xl border border-teal-200 bg-teal-50/80 p-3 text-xs text-teal-950 flex items-center gap-2">
+            <span className="material-symbols-outlined text-teal-700 text-[18px]">verified_user</span>
+            <span>{configurationMessage}</span>
           </div>
         )}
         {error && <div role="alert" className="mb-5 rounded-xl border border-rose-300 bg-rose-50 p-3 text-sm text-rose-900">{error}</div>}
         {notice && <div role="status" className="mb-5 rounded-xl border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-900">{notice}</div>}
-        {!isSignUp && judgeDemoEmail && judgeDemoPassword && (
+        {!isSignUp && (
           <button
             type="button"
             onClick={() => {
@@ -58,9 +59,10 @@ export const SignInScreen: React.FC = () => {
               setError('');
               setNotice('');
             }}
-            className="mb-5 min-h-11 w-full rounded-lg border border-teal-700 px-4 text-sm font-semibold text-teal-900 hover:bg-teal-50"
+            className="mb-5 min-h-11 w-full rounded-lg border border-teal-700 bg-teal-50/50 px-4 text-sm font-semibold text-teal-950 hover:bg-teal-100/60 transition-colors flex items-center justify-center gap-2"
           >
-            Use judge demo account
+            <span className="material-symbols-outlined text-[18px]">badge</span>
+            <span>Use demo trial account (Alex Morgan)</span>
           </button>
         )}
 

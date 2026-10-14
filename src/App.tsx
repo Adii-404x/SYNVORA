@@ -7,12 +7,23 @@ import { HomeScreen } from './components/screens/HomeScreen';
 import { TimelineScreen } from './components/screens/TimelineScreen';
 import { UploadDocumentScreen } from './components/screens/UploadDocumentScreen';
 import { CareToolsScreen } from './components/screens/CareToolsScreen';
+import { ConsentScreen } from './components/screens/ConsentScreen';
+import { PrivacyHubScreen } from './components/screens/PrivacyHubScreen';
+import { ActivityLogScreen } from './components/screens/ActivityLogScreen';
+import { DoctorShareScreen } from './components/screens/DoctorShareScreen';
+import { FamilyAccessScreen } from './components/screens/FamilyAccessScreen';
+import { DataManagementScreen } from './components/screens/DataManagementScreen';
+import { SessionExpiredScreen } from './components/screens/SessionExpiredScreen';
+import { ReportBreakdownScreen } from './components/screens/ReportBreakdownScreen';
+import { GlobalSwitcher } from './components/layout/GlobalSwitcher';
+import { useLanguage } from './context/LanguageContext';
 import { useAuth } from './context/AuthContext';
 import { SignInScreen as AuthenticationScreen } from './components/screens/SignInScreen';
 import { LoadingSkeleton } from './components/common/LoadingSkeleton';
 
 const MainAppContent: React.FC = () => {
   const { currentScreen, seniorMode, setCurrentScreen } = useApp();
+  const { isSessionLocked } = useLanguage();
   const { session, ready } = useAuth();
 
   useEffect(() => {
@@ -24,6 +35,10 @@ const MainAppContent: React.FC = () => {
   }
 
   if (!session) return <AuthenticationScreen />;
+
+  if (isSessionLocked) {
+    return <SessionExpiredScreen />;
+  }
 
   const renderScreen = () => {
     switch (currentScreen) {
@@ -37,6 +52,24 @@ const MainAppContent: React.FC = () => {
         return <CareToolsScreen mode="copilot" />;
       case 'summary':
         return <CareToolsScreen mode="summary" />;
+      case 'consent_onboarding':
+        return <ConsentScreen />;
+      case 'privacy_hub':
+        return <PrivacyHubScreen />;
+      case 'secure_signin':
+        return <AuthenticationScreen />;
+      case 'activity_log':
+        return <ActivityLogScreen />;
+      case 'doctor_share':
+        return <DoctorShareScreen />;
+      case 'family_access':
+        return <FamilyAccessScreen />;
+      case 'data_download_delete':
+        return <DataManagementScreen />;
+      case 'session_expired':
+        return <SessionExpiredScreen />;
+      case 'report_detail':
+        return <ReportBreakdownScreen />;
       default:
         return <HomeScreen />;
     }
@@ -61,6 +94,8 @@ const MainAppContent: React.FC = () => {
       {/* Mobile Bottom Navigation (hidden on desktop) */}
       <BottomNavigation />
 
+      {/* Floating Inspector for Privacy Hub Screens and States */}
+      <GlobalSwitcher />
     </div>
   );
 };

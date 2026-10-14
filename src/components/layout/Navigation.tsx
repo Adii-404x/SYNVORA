@@ -3,12 +3,29 @@ import { useApp } from '../../context/AppContext';
 import { useAuth } from '../../context/AuthContext';
 import { ScreenId } from '../../types';
 
-const items: { id: ScreenId; label: string; icon: string }[] = [
+const primaryItems: { id: ScreenId; label: string; icon: string }[] = [
   { id: 'home', label: 'Home', icon: 'home' },
   { id: 'timeline', label: 'Timeline', icon: 'history' },
   { id: 'upload', label: 'Upload', icon: 'upload_file' },
   { id: 'copilot', label: 'Copilot', icon: 'forum' },
   { id: 'summary', label: 'Summary', icon: 'summarize' },
+  { id: 'report_detail', label: 'Report Detail', icon: 'assignment' },
+];
+
+const privacyItems: { id: ScreenId; label: string; icon: string }[] = [
+  { id: 'privacy_hub', label: 'Privacy Hub', icon: 'security' },
+  { id: 'doctor_share', label: 'Doctor Share & PIN', icon: 'share' },
+  { id: 'family_access', label: 'Family Access', icon: 'group' },
+  { id: 'activity_log', label: 'Activity Log', icon: 'receipt_long' },
+  { id: 'data_download_delete', label: 'Data Rights & Export', icon: 'inventory_2' },
+];
+
+const bottomItems: { id: ScreenId; label: string; icon: string }[] = [
+  { id: 'home', label: 'Home', icon: 'home' },
+  { id: 'timeline', label: 'Timeline', icon: 'history' },
+  { id: 'upload', label: 'Upload', icon: 'upload_file' },
+  { id: 'copilot', label: 'Copilot', icon: 'forum' },
+  { id: 'privacy_hub', label: 'Privacy', icon: 'security' },
 ];
 
 export const BottomNavigation: React.FC = () => {
@@ -17,7 +34,7 @@ export const BottomNavigation: React.FC = () => {
   return (
     <nav aria-label="Primary" className="lg:hidden fixed bottom-0 inset-x-0 z-40 pb-safe bg-white/95 backdrop-blur border-t border-slate-200">
       <div className="grid grid-cols-5 h-16 max-w-xl mx-auto px-1">
-        {items.map((item) => (
+        {bottomItems.map((item) => (
           <button
             key={item.id}
             type="button"
@@ -42,30 +59,56 @@ export const DesktopSidebar: React.FC = () => {
 
   return (
     <aside className="hidden lg:flex flex-col w-64 min-h-[calc(100vh-4rem)] sticky top-16 bg-white border-r border-slate-200 p-4">
-      <div className="mb-6 flex items-center gap-3 rounded-lg bg-slate-50 p-3">
+      <div className="mb-4 flex items-center gap-3 rounded-lg bg-slate-50 p-3">
         <span className="grid size-10 shrink-0 place-items-center rounded-full bg-teal-800 text-white font-semibold">{initial}</span>
         <div className="min-w-0">
           <p className="text-xs text-slate-500">Account</p>
           <p className="truncate text-sm font-medium text-slate-900">{email}</p>
         </div>
       </div>
-      <nav aria-label="Primary" className="space-y-1">
-        {items.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            aria-current={currentScreen === item.id ? 'page' : undefined}
-            onClick={() => setCurrentScreen(item.id)}
-            className={`w-full min-h-11 rounded-md px-3 flex items-center gap-3 text-sm font-medium ${currentScreen === item.id ? 'bg-teal-800 text-white' : 'text-slate-700 hover:bg-slate-100'}`}
-          >
-            <span className="material-symbols-outlined text-[20px]">{item.icon}</span>
-            <span>{item.label}</span>
-          </button>
-        ))}
-      </nav>
+
+      <div className="space-y-4">
+        <div>
+          <p className="px-3 pb-1 text-[11px] font-bold uppercase tracking-wider text-slate-400">Records & Clinical</p>
+          <nav aria-label="Records Navigation" className="space-y-1">
+            {primaryItems.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                aria-current={currentScreen === item.id ? 'page' : undefined}
+                onClick={() => setCurrentScreen(item.id)}
+                className={`w-full min-h-10 rounded-md px-3 flex items-center gap-2.5 text-xs font-semibold ${currentScreen === item.id ? 'bg-teal-800 text-white' : 'text-slate-700 hover:bg-slate-100'}`}
+              >
+                <span className="material-symbols-outlined text-[19px]">{item.icon}</span>
+                <span>{item.label}</span>
+              </button>
+            ))}
+          </nav>
+        </div>
+
+        <div>
+          <p className="px-3 pb-1 text-[11px] font-bold uppercase tracking-wider text-slate-400">Privacy & Vault</p>
+          <nav aria-label="Privacy Navigation" className="space-y-1">
+            {privacyItems.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                aria-current={currentScreen === item.id ? 'page' : undefined}
+                onClick={() => setCurrentScreen(item.id)}
+                className={`w-full min-h-10 rounded-md px-3 flex items-center gap-2.5 text-xs font-semibold ${currentScreen === item.id ? 'bg-teal-800 text-white' : 'text-slate-700 hover:bg-slate-100'}`}
+              >
+                <span className="material-symbols-outlined text-[19px]">{item.icon}</span>
+                <span>{item.label}</span>
+              </button>
+            ))}
+          </nav>
+        </div>
+      </div>
+
       <p className="mt-auto border-t border-slate-200 pt-4 text-xs leading-relaxed text-slate-500">
         Unreviewed extraction candidates stay separate from verified health records.
       </p>
     </aside>
   );
 };
+

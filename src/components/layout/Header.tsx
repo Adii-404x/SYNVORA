@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { useAuth } from '../../context/AuthContext';
+import { useLanguage } from '../../context/LanguageContext';
 
 export const Header: React.FC = () => {
   const { seniorMode, toggleSeniorMode, setCurrentScreen } = useApp();
+  const { lang, setLang } = useLanguage();
   const { session, signOut } = useAuth();
   const [signOutError, setSignOutError] = useState('');
 
@@ -29,6 +31,14 @@ export const Header: React.FC = () => {
 
         {session && (
           <div className="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setLang(lang === 'en' ? 'hi' : 'en')}
+              aria-label="Switch language"
+              className="min-h-10 px-2.5 rounded-md border border-slate-300 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
+            >
+              {lang === 'en' ? 'हिन्दी' : 'English'}
+            </button>
             <button
               type="button"
               onClick={toggleSeniorMode}

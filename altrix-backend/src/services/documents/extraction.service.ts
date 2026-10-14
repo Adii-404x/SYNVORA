@@ -1,11 +1,10 @@
 import { createHash } from 'node:crypto';
 import { SupabaseClient } from '@supabase/supabase-js';
-import { env } from '../../config/env';
 import { medicalExtractionSchema } from '../../schemas/extraction.schema';
 import { ExtractedDocumentPage, ExtractionResult, OcrBlock } from '../../types';
 import { ApiError } from '../../utils/api-error';
 import { auditService } from '../audit.service';
-import { llmService } from '../llm/llm.service';
+import { activeLLMModel, llmService } from '../llm/llm.service';
 import { storageService } from '../../integrations/supabase/storage';
 import { ocrService, qualityFlagsForText } from './ocr.service';
 import { pdfService } from './pdf.service';
@@ -141,7 +140,7 @@ export class ExtractionService {
   ): Promise<ExtractionResult> {
     const { data: run, error: runError } = await supabase
       .from('extraction_runs')
-      .insert({ document_id: documentId, model_used: env.OLLAMA_MODEL, status: 'started' })
+      .insert({ document_id: documentId, model_used: activeLLMModel, status: 'started' })
       .select('id')
       .single();
     if (runError || !run) throw new ApiError(500, 'Failed to start document extraction');

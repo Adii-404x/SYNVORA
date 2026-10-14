@@ -9,6 +9,9 @@ const envSchema = z.object({
   SUPABASE_URL: z.string().url(),
   SUPABASE_PUBLISHABLE_KEY: z.string().min(1),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1).optional(),
+  AI_PROVIDER: z.enum(["groq", "ollama"]).optional(),
+  GROQ_API_KEY: z.string().min(1).optional(),
+  GROQ_MODEL: z.string().min(1).default("openai/gpt-oss-20b"),
   OLLAMA_BASE_URL: z.string().url().default("http://localhost:11434"),
   OLLAMA_MODEL: z.string().min(1).default("gemma2"),
   TESSERACT_LANG_PATH: z.string().min(1).optional(),
@@ -23,5 +26,10 @@ if (!parsed.success) {
   process.exit(1);
 }
 
-export const env = parsed.data;
+const aiProvider = parsed.data.AI_PROVIDER ?? (parsed.data.GROQ_API_KEY ? "groq" : "ollama");
+if (aiProvider === "groq" && !parsed.data.GROQ_API_KEY) {
+  console.error("Invalid environment configuration: GROQ_API_KEY is required when AI_PROVIDER=groq");
+  process.exit(1);
+}
 
+export const env = { ...parsed.data, AI_PROVIDER: aiProvider };

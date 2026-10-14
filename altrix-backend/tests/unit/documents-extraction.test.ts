@@ -15,7 +15,10 @@ vi.mock('../../src/services/documents/ocr.service', () => ({
   ocrService: { extractTextFromImage: vi.fn() },
   qualityFlagsForText: (text: string) => !text.trim() ? ['empty_text'] : text.trim().length < 40 ? ['suspiciously_short_text'] : [],
 }));
-vi.mock('../../src/services/llm/llm.service', () => ({ llmService: { chat: vi.fn() } }));
+vi.mock('../../src/services/llm/llm.service', () => ({
+  activeLLMModel: 'openai/gpt-oss-20b',
+  llmService: { chat: vi.fn() },
+}));
 
 const observation = {
   test_name: 'Glucose', value: '5.4', unit: 'mmol/L', reference_range: '3.9-5.5',
@@ -71,6 +74,9 @@ describe('ExtractionService', () => {
     const db = makeSupabase();
     const result = await new ExtractionService().processDocument('doc-1', 'user-1', 'path', 'application/pdf', db.client as never);
 
+    expect(db.runTable.insert).toHaveBeenCalledWith(expect.objectContaining({
+      model_used: 'openai/gpt-oss-20b',
+    }));
     const [candidates, options] = db.upsert.mock.calls[0];
     expect(options).toEqual({ onConflict: 'document_id,dedupe_key', ignoreDuplicates: true });
     expect(candidates[0]).toMatchObject({

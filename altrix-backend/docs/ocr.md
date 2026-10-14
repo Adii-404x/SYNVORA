@@ -8,6 +8,8 @@ PDF pages with at least 40 characters of embedded text use the PDF text layer. T
 
 The runtime uses the existing `pdf-parse` renderer and existing `tesseract.js` dependency; no image preprocessing library was added. The OCR worker is reused and serializes recognition jobs. If `TESSERACT_LANG_PATH` is unset, Tesseract.js uses its default English traineddata location, which may require network access on first use. Deployments without outbound access must provision compatible traineddata and set this variable. PDF/OCR processing should run with normal Node worker-thread and memory limits; the app-level caps do not replace container memory/CPU limits.
 
+Tesseract.js performs character recognition. The resulting text is sent to the configured language-model provider for structured medical extraction; summaries and health-copilot responses use the same provider. Set the server-only `GROQ_API_KEY` to use Groq with `openai/gpt-oss-20b` by default. The key must not be exposed in frontend `VITE_*` variables.
+
 ## Trust and Quality
 
 OCR confidence is the value returned by Tesseract (0-100) and is stored independently from LLM extraction confidence (0-1). The current provider response does not report a validated extraction confidence, so `llm_confidence` remains `null`. Neither score represents clinical correctness. Low OCR confidence, suspiciously short or empty text, malformed replacement characters, invalid/ambiguous dates, questionable numeric forms, and unlocated evidence are flagged for review. Candidates remain pending.

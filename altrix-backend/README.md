@@ -1,6 +1,6 @@
 # Altrix Labs API
 
-Express 5 API using strict TypeScript, Zod, Supabase Auth/PostgreSQL/Storage, PDF text extraction, Tesseract.js, and an isolated Ollama provider adapter.
+Express 5 API using strict TypeScript, Zod, Supabase Auth/PostgreSQL/Storage, PDF text extraction, Tesseract.js, and isolated Groq/Ollama language-model providers.
 
 ## Setup
 

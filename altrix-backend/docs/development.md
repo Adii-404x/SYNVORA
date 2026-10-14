@@ -4,7 +4,7 @@
 
 - Node.js compatible with the repository's TypeScript and Vitest versions.
 - A Supabase project with the private `medical-documents` Storage bucket and migrations applied to a non-production database first.
-- Ollama reachable at the configured `OLLAMA_BASE_URL` with `qwen3.8:27b` available locally. No cloud model credentials are used by this provider.
+- For cloud AI, a Groq API key. Set `GROQ_API_KEY` in the backend environment to use `openai/gpt-oss-20b` (or set `GROQ_MODEL` to another compatible model). This is selected automatically when a key is present; set `AI_PROVIDER=ollama` to force local Ollama at `OLLAMA_BASE_URL` using `OLLAMA_MODEL`. Setting `AI_PROVIDER=groq` without a key is a startup configuration error.
 
 ## Setup
 
@@ -18,7 +18,7 @@ npm test
 npm run dev
 ```
 
-Set `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` in the local `.env`. Keep `.env` private and do not use the optional service-role key for normal requests. The API listens on port 3000 by default; health check: `http://localhost:3000/api/health`.
+Set `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` in the local `.env`. To use Groq, set `GROQ_API_KEY` there; keep it server-side and never put it in a `VITE_*` variable. Keep `.env` private and do not use the optional service-role key for normal requests. The API listens on port 3000 by default; health check: `http://localhost:3000/api/health`.
 
 ## Database Safety
 

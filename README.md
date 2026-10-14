@@ -1,44 +1,47 @@
-# Altrix Labs
+# Synvora
 
-Altrix Labs is a personal health-record copilot with a React/Vite frontend and an Express 5 + TypeScript API. Its connected flows use Supabase Auth, user-scoped REST requests, private document storage, candidate review, verified records, timeline/trends, grounded copilot, summary, and FHIR export. Live Supabase and hosted AI access are not configured in this checkout.
+Synvora is a private, source-linked health-record copilot. The production frontend is the React/Vite application in the repository root. It connects to Supabase Auth and a separately hosted API for private document storage, reviewable extraction, verified records, summaries, copilot answers, and FHIR export.
 
-## Workspace
+## Deploy the frontend to Vercel
 
-- `src/`: React frontend (Vite, TypeScript, Tailwind CSS).
-- `altrix-backend/`: Express API, Supabase integrations, OCR/document processing, migrations, and Vitest tests.
-- `Frontend/`: separate static UI prototype; not used by the Vite app.
+The repository includes a root-level `vercel.json` configured for the Vite single-page app.
 
-## Local Setup
+1. Import `Adii-404x/SYNVORA` into Vercel and set the **Root Directory** to the repository root (not `Frontend/` or `altrix-backend/`).
+2. Use `npm run build` as the build command and `dist` as the output directory. Vercel detects the checked-in `vercel.json` with these settings.
+3. Set these environment variables for the Vercel deployment:
+   - `VITE_SUPABASE_URL`: the Supabase project URL.
+   - `VITE_SUPABASE_PUBLISHABLE_KEY`: that project's publishable key (or legacy anon key). Never use a service-role or secret key in a `VITE_*` variable.
+   - `VITE_API_BASE_URL`: the HTTPS origin of the deployed API followed by `/api`, for example `https://your-api.example.com/api`. Do not use localhost in a Vercel deployment.
+4. Deploy the API separately using the root `render.yaml` or another Node hosting service. Configure its Supabase settings, `FRONTEND_ORIGIN` to the Vercel site origin, and an authenticated, cloud-reachable Ollama-compatible model endpoint if AI features are required. A local Ollama server cannot be reached from Vercel or Render.
+5. In Supabase, allow the Vercel origin in Auth redirect/site URL settings and keep the `medical-documents` bucket private. Apply and validate database migrations on a staging project before using a production database.
+
+Vercel's `VITE_*` values are embedded in the public browser bundle. Only the Supabase publishable/anon key belongs there. Keep Supabase secret keys and any model credentials in the API host's server-side environment.
+
+## Local development
 
 Use Node.js 22 or newer.
 
-1. Copy `.env.example` to `.env.local`. Set `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`, and `VITE_API_BASE_URL`. Only a publishable/anon key belongs in the frontend. Never add a service-role or secret key to a `VITE_` variable.
-2. In the workspace root, run `npm ci` and `npm run dev`. Vite serves the frontend at `http://localhost:5173`.
-3. In a second terminal, run `cd altrix-backend`, copy `.env.example` to `.env`, set `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY`, then run `npm ci` and `npm run dev`. The API listens at `http://localhost:3000`.
-4. Configure the Supabase Auth site URL and allowed redirect URL to the frontend origin. The current UI uses email/password sign-up and sign-in.
-5. Create the private `medical-documents` Storage bucket with a 10 MB limit and PDF/JPEG/PNG/WebP allowlist. Apply reviewed migrations to a development project in numeric order. The migrations establish ownership policies; bucket creation is a separate Supabase Storage action.
-6. Configure a reachable Ollama-compatible endpoint and selected model in the backend only if copilot or AI summary generation is needed. Current checked-in runtime defaults are local Ollama at `http://localhost:11434` and model `gemma2`; the local ignored `.env` in this checkout selects `qwen3.8:27b`. Model availability has not been verified.
+1. Copy `.env.example` to `.env.local` and configure `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`, and `VITE_API_BASE_URL`.
+2. From the repository root, run `npm ci` and `npm run dev`. Vite serves the frontend at `http://localhost:5173`.
+3. In a second terminal, go to `altrix-backend`, copy `.env.example` to `.env`, configure the Supabase and local Ollama settings, then run `npm ci` and `npm run dev`.
+4. Follow [the staging deployment runbook](docs/deployment.md) for database setup, API hosting, environment variables, and release checks.
 
-## Environment Variables
+## Repository layout
 
-Frontend `.env.local`: `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`, `VITE_API_BASE_URL`.
+- `src/`, `public/`, `index.html`: the Vercel-deployed React application and static assets.
+- `altrix-backend/`: the separately hosted Express API, Supabase migrations, and tests.
+- `Frontend/`: an older standalone UI prototype retained for reference; it is not used by the root Vite build or Vercel deployment.
+- `vercel.json`: Vercel build output and client-side route rewrite.
+- `render.yaml`: Render configuration for the backend API.
 
-Backend `.env`: `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `PORT`, `NODE_ENV`, `FRONTEND_ORIGIN`, `OLLAMA_BASE_URL`, `OLLAMA_MODEL`, and optionally `TESSERACT_LANG_PATH`. `SUPABASE_SERVICE_ROLE_KEY` is optional and only used by the audit-log service; ordinary authenticated data requests use the caller's access token and publishable key.
-
-## Checks
+## Validation
 
 ```powershell
 npm run build
-npm run lint
 cd altrix-backend
+npm ci
 npm run build
 npm test
 ```
 
-The backend suite uses mocked Supabase and model responses, plus actual digital/mixed PDF parser/renderer checks; it does not verify a live database, RLS, Auth, Storage, remote model, or deployed OCR. Tests and fixtures use synthetic data only. The supported upload formats are PDF, JPEG, PNG, and WebP, maximum 10 MB; see `altrix-backend/docs/ocr.md` for OCR limitations.
-
-## Release State
-
-`https://github.com/Adii-404x/ALTRIX-LABS-` is the target repository. No deployment URL exists yet. The configured Supabase URL in the ignored local backend `.env` is a placeholder (`example.supabase.co`), so the database/Auth/Storage journey is not live-verified. Deployment also requires real Supabase project settings and a cloud-reachable model endpoint; local Ollama is not reachable from a cloud host by default. Do not use real patient records for demos.
-
-See [the staging deployment runbook](docs/deployment.md) for the Vercel/Render setup, environment variables, health checks and release gates.
+Tests use synthetic records and do not replace staging verification of Supabase Auth, RLS, Storage, OCR, the hosted model endpoint, and cross-user access controls. Do not use real patient information in a demo or staging environment.

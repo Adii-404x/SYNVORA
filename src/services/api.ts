@@ -433,6 +433,17 @@ async function accessToken(): Promise<string> {
   }
 }
 
+function normalizeApiPath(path: string): string {
+  if (!apiBaseUrl) return path;
+  const cleanBase = apiBaseUrl.replace(/\/$/, '');
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  if (cleanBase.endsWith('/api')) {
+    return `${cleanBase}${cleanPath.replace(/^\/api/, '')}`;
+  }
+  const withApi = cleanPath.startsWith('/api') ? cleanPath : `/api${cleanPath}`;
+  return `${cleanBase}${withApi}`;
+}
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (!apiBaseUrl) {
     throw new ApiError('No backend URL configured', 0);
@@ -444,9 +455,15 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
   let response: Response;
   try {
-    response = await fetch(`${apiBaseUrl}${path}`, { ...init, headers });
+    const fullUrl = normalizeApiPath(path);
+    response = await fetch(fullUrl, { ...init, headers });
   } catch {
     throw new ApiError('The health API is unavailable.', 0);
+  }
+
+  const contentType = response.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    throw new ApiError('Unexpected non-JSON response from API server', response.status);
   }
 
   const payload = (await response.json().catch(() => null)) as
@@ -650,7 +667,7 @@ export const api = {
     return Promise.resolve({ status: 'insufficient_data', data: [] });
   },
 
-  askCopilot: async (message: string, conversationId?: string): Promise<GroundedText> => {
+  askCopilot: async (message: string, conversationId?: string, lang = 'en'): Promise<GroundedText> => {
     const convId = conversationId || mockConversations[0]?.id || `conv-${Date.now()}`;
     if (!mockConversations.some((c) => c.id === convId)) {
       mockConversations.unshift({
@@ -662,19 +679,40 @@ export const api = {
       mockMessages[convId] = [];
     }
 
-    // Attempt server-side Gemini endpoint first
+    // 1. If a backend API is configured, call remote endpoint first
+    if (apiBaseUrl) {
+      try {
+        const remoteResult = await request<GroundedText>('/copilot/chat', {
+          method: 'POST',
+          body: JSON.stringify({
+            message,
+            conversationId: convId,
+            lang,
+          }),
+        });
+        if (remoteResult?.answer) {
+          return remoteResult;
+        }
+      } catch {
+        // Fall back to server/local engine
+      }
+    }
+
+    // 2. Attempt server-side Gemini endpoint on relative origin (AI Studio / Node server.ts)
     try {
       const response = await fetch('/api/copilot/chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
         body: JSON.stringify({
           message,
           conversationId: convId,
           records: mockVerifiedRecords,
+          lang,
         }),
       });
 
-      if (response.ok) {
+      const contentType = response.headers.get('content-type') || '';
+      if (response.ok && contentType.includes('application/json')) {
         const payload = (await response.json()) as { success?: boolean; data?: GroundedText };
         if (payload?.success && payload.data?.answer) {
           const result = payload.data;
@@ -698,40 +736,84 @@ export const api = {
       // Proceed to comprehensive local clinical reasoning engine
     }
 
-    // Comprehensive Grounded Clinical Reasoning Fallback
+    // 3. Comprehensive Grounded Clinical Reasoning Engine (Vercel & Offline resilient)
     const lower = message.toLowerCase();
+    const isHindi = lang === 'hi' || /[\u0900-\u097F]/.test(message);
     let answer = '';
     const citations: EvidenceSource[] = [];
     let uncertainty = false;
 
-    // Build context strings from verified records
+    // Build context strings from current verified records
     const obsList = mockVerifiedRecords.observations.map((o) => `${o.name}: ${o.value} ${o.unit || ''} (ref: ${o.referenceRange || 'none'})`).join(', ');
     const medList = mockVerifiedRecords.medications.map((m) => `${m.name} ${m.strength || ''} (${m.dosage || ''}, ${m.frequency || ''})`).join(', ');
 
-    if (lower.includes('a1c') || lower.includes('glucose') || lower.includes('sugar') || lower.includes('मधुमेह') || lower.includes('शुगर')) {
-      answer = `Based on your verified lab report from 2026-09-15:\n- **HbA1c**: 6.8% (reference range 4.0–5.6%, marked High). This reflects your 3-month average blood sugar.\n- **Fasting Blood Glucose**: 112 mg/dL (reference range 70–99 mg/dL, marked High).\n\n**Clinical Context & Trend**:\nYour 6-month historical trend indicates consistent improvement, dropping from 7.2% in March 2026 to 7.0% in June, and now 6.8% in September. You are actively taking Metformin 500 mg with dinner. Continue your prescribed schedule and routine physical activity.`;
-      citations.push(mockVerifiedRecords.sources[0], mockVerifiedRecords.sources[1]);
-    } else if (lower.includes('medication') || lower.includes('medicine') || lower.includes('drug') || lower.includes('pill') || lower.includes('metformin') || lower.includes('lisinopril') || lower.includes('दवा') || lower.includes('दवाई')) {
-      answer = `Your active documented medications are:\n1. **Metformin 500 mg**: One tablet with the evening meal once daily (for glycemic management, started 2026-08-15).\n2. **Lisinopril 10 mg**: One tablet in the morning once daily (for blood pressure support, started 2026-08-15).\n\nBoth medications are active in your verified profile. Take them consistently with water, and report any symptoms to your physician.`;
-      citations.push(mockVerifiedRecords.sources[4], mockVerifiedRecords.sources[5]);
-    } else if (lower.includes('pressure') || lower.includes('bp') || lower.includes('heart') || lower.includes('cardio') || lower.includes('रक्तचाप') || lower.includes('बीपी')) {
-      answer = `Your Cardiology Assessment on 2026-08-22 recorded:\n- **Blood Pressure**: 128/82 mmHg (sitting, borderline systolic).\n- **Cardiac Rhythm**: Normal sinus rhythm, no arrhythmias.\n\nYou are taking Lisinopril 10 mg once daily in the morning to maintain optimal vascular pressure.`;
-      citations.push(mockVerifiedRecords.sources[3]);
-    } else if (lower.includes('cholesterol') || lower.includes('ldl') || lower.includes('lipid') || lower.includes('कोलेस्ट्रॉल')) {
-      answer = `Your verified Lipid Panel from 2026-09-15 shows an **LDL Cholesterol of 98 mg/dL**, which falls within the optimal target range (<100 mg/dL). This is an encouraging indicator of metabolic stability alongside your glycemic care plan.`;
-      citations.push(mockVerifiedRecords.sources[2]);
-    } else if (lower.includes('question') || lower.includes('ask') || lower.includes('doctor') || lower.includes('rajiv') || lower.includes('visit') || lower.includes('सवाल') || lower.includes('डॉक्टर')) {
-      answer = `Here are 3 tailored discussion questions for your consultation with Dr. Rajiv Sharma:\n1. *"My HbA1c has improved from 7.2% to 6.8% over the last 6 months. Should we maintain Metformin 500 mg at the current dosage?"*\n2. *"My sitting blood pressure was 128/82 mmHg. Is this in our target range for Lisinopril 10 mg daily?"*\n3. *"Are there any additional screenings or kidney function checks (eGFR, microalbumin) we should schedule for the next visit?"*`;
-      citations.push(mockVerifiedRecords.sources[0], mockVerifiedRecords.sources[3]);
-    } else if (lower.includes('diet') || lower.includes('food') || lower.includes('lifestyle') || lower.includes('eat') || lower.includes('walk') || lower.includes('खाना') || lower.includes('आहार')) {
-      answer = `For maintaining your improving glycemic trend (HbA1c 6.8%) and controlled blood pressure (128/82 mmHg):\n- **Nutrition**: Prioritize fiber-rich vegetables, whole grains (millets, oats), and lean proteins. Limit refined sugars and processed flours.\n- **Hydration**: Drink adequate water throughout the day, especially since you take Lisinopril.\n- **Movement**: 20-30 minutes of brisk walking after dinner helps insulin sensitivity and evening glucose metabolism.\n\nAlways discuss any significant dietary or fitness modifications with your doctor.`;
-      citations.push(mockVerifiedRecords.sources[0], mockVerifiedRecords.sources[4]);
-    } else if (lower.includes('हिंदी') || lower.includes('hindi')) {
-      answer = `नमस्ते! आपके सत्यापित स्वास्थ्य रिकॉर्ड के अनुसार:\n- **HbA1c**: 6.8% (सामान्य सीमा 4.0–5.6%, उच्च)। यह पिछले 3 महीनों का औसत ब्लड शुगर दिखाता है।\n- **फास्टिंग ग्लूकोज**: 112 mg/dL (सामान्य सीमा 70–99 mg/dL)।\n- **रक्तचाप (BP)**: 128/82 mmHg (सामान्य सीमा के पास)।\n- **दवाएं**: मेटफॉर्मिन 500 mg (रात के भोजन के साथ) और लिसिनोप्रिल 10 mg (सुबह)।\n\nआपकी रिपोर्ट में पिछले 6 महीनों में अच्छा सुधार (7.2% से 6.8%) देखा गया है। कृपया किसी भी बदलाव के लिए अपने डॉक्टर से परामर्श करें।`;
-      citations.push(mockVerifiedRecords.sources[0], mockVerifiedRecords.sources[1]);
-    } else {
-      answer = `Your verified health records show:\n- **Recent Observations**: ${obsList}\n- **Active Medications**: ${medList}\n\nAll data is source-linked to your uploaded laboratory and clinic reports. If you have questions about specific lab tests, medications, or doctor visit preparation, let me know!`;
+    const hasGlucose = lower.includes('a1c') || lower.includes('glucose') || lower.includes('sugar') || lower.includes('मधुमेह') || lower.includes('शुगर') || lower.includes('diabetes');
+    const hasMedication = lower.includes('medication') || lower.includes('medicine') || lower.includes('drug') || lower.includes('pill') || lower.includes('metformin') || lower.includes('lisinopril') || lower.includes('atorvastatin') || lower.includes('दवा') || lower.includes('दवाई') || lower.includes('खुराक');
+    const hasPressure = lower.includes('pressure') || lower.includes('bp') || lower.includes('heart') || lower.includes('cardio') || lower.includes('ecg') || lower.includes('रक्तचाप') || lower.includes('बीपी') || lower.includes('हृदय');
+    const hasLipids = lower.includes('cholesterol') || lower.includes('ldl') || lower.includes('lipid') || lower.includes('hdl') || lower.includes('कोलेस्ट्रॉल');
+    const hasDoctor = lower.includes('question') || lower.includes('ask') || lower.includes('doctor') || lower.includes('rajiv') || lower.includes('visit') || lower.includes('appointment') || lower.includes('डॉक्टर') || lower.includes('सवाल') || lower.includes('परामर्श');
+    const hasLifestyle = lower.includes('diet') || lower.includes('food') || lower.includes('lifestyle') || lower.includes('eat') || lower.includes('walk') || lower.includes('exercise') || lower.includes('खाना') || lower.includes('आहार') || lower.includes('व्यायाम');
+    const hasSummaryQuery = lower.includes('summar') || lower.includes('overview') || lower.includes('health status') || lower.includes('report') || lower.includes('सारांश') || lower.includes('रिपोर्ट') || lower.includes('सब कुछ');
+    const hasMissingTopic = lower.includes('thyroid') || lower.includes('cancer') || lower.includes('tsh') || lower.includes('mri') || lower.includes('x-ray') || lower.includes('surgery') || lower.includes('allergy') || lower.includes('eye');
+
+    if (hasMissingTopic) {
+      uncertainty = true;
+      if (isHindi) {
+        answer = `आपके सत्यापित मेडिकल रिकॉर्ड में इस विषय से संबंधित कोई टेस्ट या दस्तावेज़ दर्ज नहीं है।\n\nवर्तमान में आपके रिकॉर्ड में केवल:\n- **HbA1c एवं ग्लूकोज** (मधुमेह जांच)\n- **रक्तचाप एवं ECG** (हृदय जांच)\n- **LDL कोलेस्ट्रॉल**\n- **सक्रिय दवाएं**: मेटफॉर्मिन और लिसिनोप्रिल\n\nयदि आपके पास अतिरिक्त रिपोर्ट या पर्ची है, तो कृपया 'Upload Document' विकल्प से जोड़ें या अपने डॉक्टर से संपर्क करें।`;
+      } else {
+        answer = `Your verified health records do not currently contain documentation regarding this specific test or diagnosis.\n\nYour active records cover:\n- **Glycemic Metrics**: HbA1c (6.8%) & Fasting Glucose (112 mg/dL)\n- **Cardiovascular**: Blood Pressure (128/82 mmHg) & Normal Sinus ECG\n- **Lipids**: LDL Cholesterol (98 mg/dL)\n- **Active Medications**: Metformin 500 mg & Lisinopril 10 mg\n\nPlease upload the corresponding diagnostic report or consult Dr. Rajiv Sharma for unrecorded evaluations.`;
+      }
       citations.push(mockVerifiedRecords.sources[0]);
+    } else if (hasDoctor) {
+      if (isHindi) {
+        answer = `डॉक्टर राजीव शर्मा से आपकी अगली मुलाकात के लिए 3 महत्वपूर्ण चर्चा बिंदु:\n1. *"पिछले 6 महीनों में मेरा HbA1c 7.2% से घटकर 6.8% हुआ है। क्या मेटफॉर्मिन 500 mg की खुराक जारी रखनी चाहिए?"*\n2. *"लिसिनोप्रिल 10 mg लेने के दौरान मेरा रक्तचाप 128/82 mmHg है। क्या यह हमारे लक्षित स्तर में है?"*\n3. *"क्या अगली विजिट पर किडनी (eGFR) या विटामिन D की दोबारा जांच की आवश्यकता है?"*`;
+      } else {
+        answer = `Here are 3 high-yield consultation questions for your upcoming visit with Dr. Rajiv Sharma:\n1. *"My HbA1c has improved from 7.2% down to 6.8% over the last 6 months. Should we maintain Metformin 500 mg at the current dosage?"*\n2. *"My sitting blood pressure is 128/82 mmHg on Lisinopril 10 mg daily. Is this aligned with our long-term vascular target?"*\n3. *"Given my borderline high glycemic readings, should we schedule a follow-up metabolic panel and kidney screening (eGFR) in 3 months?"*`;
+      }
+      citations.push(mockVerifiedRecords.sources[0], mockVerifiedRecords.sources[3]);
+    } else if (hasGlucose) {
+      if (isHindi) {
+        answer = `आपके सत्यापित लैब रिपोर्ट (15 सितंबर 2026) के परिणाम:\n- **HbA1c**: 6.8% (सामान्य सीमा 4.0–5.6%, उच्च दर्ज)। यह पिछले 3 महीनों का औसत शुगर दर्शाता है।\n- **फास्टिंग ग्लूकोज**: 112 mg/dL (सामान्य सीमा 70–99 mg/dL, उच्च दर्ज)।\n\n**प्रगति एवं रुझान (6-Month Trend)**:\nआपके रिकॉर्ड में निरंतर सकारात्मक सुधार हुआ है—मार्च में 7.2%, जून में 7.0%, और अब सितंबर में 6.8%। आप रात के भोजन के साथ मेटफॉर्मिन 500 mg ले रहे हैं। नियमित दिनचर्या और वॉक जारी रखें।`;
+      } else {
+        answer = `Based on your verified lab report from 2026-09-15:\n- **HbA1c**: 6.8% (reference range 4.0–5.6%, marked High). This measures your 2-3 month glycosylated hemoglobin.\n- **Fasting Blood Glucose**: 112 mg/dL (reference range 70–99 mg/dL, marked High).\n\n**Clinical Progression & 6-Month Trend**:\nYour longitudinal record shows consistent improvement across 2026: dropping from **7.2%** in March to **7.0%** in June, and reaching **6.8%** in September. You are actively taking Metformin 500 mg with dinner. Continue adhering to your dietary plan and evening walks.`;
+      }
+      citations.push(mockVerifiedRecords.sources[0], mockVerifiedRecords.sources[1]);
+    } else if (hasMedication) {
+      if (isHindi) {
+        answer = `आपके सत्यापित रिकॉर्ड में दर्ज सक्रिय दवाएं:\n1. **मेटफॉर्मिन (Metformin) 500 mg**: 1 गोली रात के भोजन के साथ, प्रतिदिन (ब्लड शुगर नियंत्रण के लिए, प्रारंभ: 15 अगस्त 2026)।\n2. **लिसिनोप्रिल (Lisinopril) 10 mg**: 1 गोली सुबह, प्रतिदिन (रक्तचाप नियंत्रण के लिए, प्रारंभ: 15 अगस्त 2026)।\n\nदवाएं नियमित रूप से पानी के साथ लें। यदि कोई खुराक छूट जाए तो अगली खुराक दोगुनी न करें।`;
+      } else {
+        answer = `Your active documented medications are:\n1. **Metformin 500 mg**: One tablet with the evening meal once daily (for glycemic control, initiated 2026-08-15).\n2. **Lisinopril 10 mg**: One tablet in the morning once daily (for blood pressure and vascular protection, initiated 2026-08-15).\n\nBoth medications are active in your verified profile. Take them consistently with water. Do not take a double dose if you miss a scheduled time.`;
+      }
+      citations.push(mockVerifiedRecords.sources[4], mockVerifiedRecords.sources[5]);
+    } else if (hasPressure) {
+      if (isHindi) {
+        answer = `22 अगस्त 2026 के कार्डियोलॉजी परीक्षण के अनुसार:\n- **रक्तचाप (Blood Pressure)**: 128/82 mmHg (बैठकर मापा गया, बॉर्डरलाइन सिस्टोलिक)।\n- **ECG रिदम**: सामान्य साइनस रिदम (Normal Sinus Rhythm), कोई असामान्यता नहीं पाई गई।\n\nआप रक्तचाप के लिए लिसिनोप्रिल 10 mg सुबह ले रहे हैं। नमक की मात्रा संतुलित रखें और नियमित वॉक करें।`;
+      } else {
+        answer = `Your Cardiology Assessment on 2026-08-22 recorded:\n- **Blood Pressure**: 128/82 mmHg (measured sitting, borderline systolic).\n- **Cardiac Rhythm**: Normal sinus rhythm, no arrhythmias or acute ischemic changes.\n\nYou take Lisinopril 10 mg once daily in the morning to maintain optimal vascular pressure. Keep hydration adequate throughout the day.`;
+      }
+      citations.push(mockVerifiedRecords.sources[3]);
+    } else if (hasLipids) {
+      if (isHindi) {
+        answer = `15 सितंबर 2026 की लिपिड प्रोफाइल रिपोर्ट के अनुसार:\n- **LDL कोलेस्ट्रॉल**: 98 mg/dL\n\nयह लक्षित सामान्य सीमा (<100 mg/dL) के भीतर है और हृदय स्वास्थ्य के लिए एक सकारात्मक संकेत है।`;
+      } else {
+        answer = `Your verified Lipid Panel from 2026-09-15 shows:\n- **LDL Cholesterol**: 98 mg/dL (optimal target <100 mg/dL).\n\nThis is within the recommended clinical threshold for cardiovascular risk management alongside your glycemic care plan.`;
+      }
+      citations.push(mockVerifiedRecords.sources[2]);
+    } else if (hasLifestyle) {
+      if (isHindi) {
+        answer = `मधुमेह (HbA1c 6.8%) और रक्तचाप (128/82 mmHg) के बेहतर प्रबंधन हेतु जीवनशैली सुझाव:\n- **आहार**: साबुत अनाज (ज्वार, बाजरा, ओट्स), हरी पत्तेदार सब्जियां और प्रोटीन प्राथमिकता दें। चीनी और रिफाइंड मैदे से बचें।\n- **व्यायाम**: रात के भोजन के बाद 20-30 मिनट की तेज वॉक इंसुलिन संवेदनशीलता बढ़ाने में अत्यंत सहायक है।\n- **जल सेवन**: लिसिनोप्रिल के साथ पर्याप्त पानी पिएं।\n\nकिसी भी बड़े बदलाव से पहले डॉक्टर राजीव शर्मा की सलाह अवश्य लें।`;
+      } else {
+        answer = `Evidence-based lifestyle recommendations for your glycemic (HbA1c 6.8%) and cardiovascular (128/82 mmHg) goals:\n- **Nutrition**: Emphasize high-fiber vegetables, whole grains (millets, oats), and lean proteins. Minimize refined sugars and high-glycemic carbohydrates.\n- **Physical Activity**: 20–30 minutes of brisk walking after dinner improves evening glucose disposal and insulin sensitivity.\n- **Hydration**: Maintain steady fluid intake throughout the day, especially alongside daily Lisinopril therapy.\n\nAlways discuss major dietary or workout changes with your care provider.`;
+      }
+      citations.push(mockVerifiedRecords.sources[0], mockVerifiedRecords.sources[4]);
+    } else {
+      // General overview / summary
+      if (isHindi) {
+        answer = `नमस्ते! आपके सत्यापित स्वास्थ्य रिकॉर्ड का अवलोकन:\n- **मेटाबॉलिक स्थिति**: HbA1c 6.8% (6 महीने में 7.2% से सुधार) और फास्टिंग ग्लूकोज 112 mg/dL।\n- **हृदय स्वास्थ्य**: रक्तचाप 128/82 mmHg और LDL कोलेस्ट्रॉल 98 mg/dL (सामान्य)।\n- **सक्रिय दवाएं**: मेटफॉर्मिन 500 mg (रात) एवं लिसिनोप्रिल 10 mg (सुबह)।\n\nसभी विवरण आपके द्वारा अपलोड किए गए सत्यापित दस्तावेज़ों से जुड़े हैं। आप किसी भी विशिष्ट जांच, दवा या डॉक्टर परामर्श के बारे में प्रश्न पूछ सकते हैं।`;
+      } else {
+        answer = `Here is an overview of your verified health profile:\n- **Glycemic Profile**: HbA1c is 6.8% with an improving 6-month trajectory (down from 7.2%), and Fasting Glucose is 112 mg/dL.\n- **Cardiovascular Health**: Blood Pressure is 128/82 mmHg (normal sinus rhythm ECG), with LDL Cholesterol at an optimal 98 mg/dL.\n- **Active Pharmacotherapy**: Metformin 500 mg with dinner and Lisinopril 10 mg in the morning.\n\nAll data is source-linked to your uploaded clinical reports. Feel free to ask about specific lab tests, medications, or doctor visit preparation!`;
+      }
+      citations.push(mockVerifiedRecords.sources[0], mockVerifiedRecords.sources[3]);
     }
 
     const assistantMsg: ConversationMessage = {
@@ -773,16 +855,30 @@ export const api = {
     return Promise.resolve([...(mockMessages[id] || [])]);
   },
 
-  generateSummary: async (): Promise<GroundedText> => {
-    // Attempt server-side Gemini summary endpoint first
+  generateSummary: async (lang = 'en'): Promise<GroundedText> => {
+    // 1. If backend API is configured, call remote endpoint first
+    if (apiBaseUrl) {
+      try {
+        const remoteResult = await request<GroundedText>('/health/summary', {
+          method: 'POST',
+          body: JSON.stringify({ lang }),
+        });
+        if (remoteResult?.summary) return remoteResult;
+      } catch {
+        // Fall back to server/local engine
+      }
+    }
+
+    // 2. Attempt server-side Gemini summary endpoint on relative origin
     try {
       const response = await fetch('/api/health/summary', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ records: mockVerifiedRecords }),
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ records: mockVerifiedRecords, lang }),
       });
 
-      if (response.ok) {
+      const contentType = response.headers.get('content-type') || '';
+      if (response.ok && contentType.includes('application/json')) {
         const payload = (await response.json()) as { success?: boolean; data?: GroundedText };
         if (payload?.success && payload.data?.summary) {
           return {
@@ -796,6 +892,27 @@ export const api = {
       // Proceed to local clinical summary generation
     }
 
+    // 3. Local Structured Clinical Briefing Generation (Vercel & Offline resilient)
+    const isHindi = lang === 'hi';
+
+    if (isHindi) {
+      const obsHindi = mockVerifiedRecords.observations
+        .map((o) => `- **${o.name}**: ${o.value} ${o.unit || ''} (दिनांक: ${o.date}, मानक सीमा: ${o.referenceRange || 'लागू नहीं'})`)
+        .join('\n');
+
+      const medHindi = mockVerifiedRecords.medications
+        .map((m) => `- **${m.name} ${m.strength || ''}**: ${m.dosage || ''} (${m.frequency || 'प्रतिदिन'}, स्थिति: सक्रिय)`)
+        .join('\n');
+
+      const hindiSummary = `नैदानिक सारांश एवं स्वास्थ्य प्रोफ़ाइल (CLINICAL BRIEFING)\nमरीज: एलेक्स मॉर्गन (Alex Morgan) | सत्यापित स्रोत: 3 दस्तावेज़\n\n1. मेटाबॉलिक एवं ग्लाइसेमिक स्थिति:\n- **HbA1c**: 6.8% (15 सितंबर 2026, संदर्भ सीमा 4.0–5.6%)। पिछले 6 महीनों के रुझान में निरंतर सुधार देखा गया है (मार्च में 7.2% → जून में 7.0% → सितंबर में 6.8%)।\n- **फास्टिंग ब्लड ग्लूकोज**: 112 mg/dL (संदर्भ सीमा 70–99 mg/dL)।\n\n2. हृदय एवं रक्तचाप परीक्षण:\n- **रक्तचाप (BP)**: 128/82 mmHg (22 अगस्त 2026 को बैठ कर लिया गया परीक्षण, सामान्य साइनस रिदम)।\n- **LDL कोलेस्ट्रॉल**: 98 mg/dL (अनुकूल स्तर <100 mg/dL)।\n\n3. सक्रिय दवाएं:\n${medHindi}\n\n4. सत्यापित मेडिकल पैरामीटर्स:\n${obsHindi}\n\n5. डॉक्टर राजीव शर्मा से परामर्श हेतु मुख्य प्रश्न:\n- "HbA1c में 7.2% से 6.8% का सुधार होने पर, क्या मेटफॉर्मिन 500 mg जारी रखना चाहिए?"\n- "लिसिनोप्रिल 10 mg के साथ 128/82 mmHg का रक्तचाप क्या हमारे दीर्घकालिक लक्ष्य के अनुरूप है?"\n- "क्या अगली जांच में किडनी (eGFR) या लिपिड प्रोफाइल की आवश्यकता है?"\n\n*नोट: यह सारांश सत्यापित स्वास्थ्य रिकॉर्ड से चिकित्सक की समीक्षा के लिए तैयार किया गया है।*`;
+
+      return Promise.resolve({
+        summary: hindiSummary,
+        sources: [...mockVerifiedRecords.sources],
+        uncertainty: false,
+      });
+    }
+
     const obsText = mockVerifiedRecords.observations
       .map((o) => `- **${o.name}**: ${o.value} ${o.unit || ''} (Recorded: ${o.date}, Ref: ${o.referenceRange || 'Standard'})`)
       .join('\n');
@@ -804,7 +921,7 @@ export const api = {
       .map((m) => `- **${m.name} ${m.strength || ''}**: ${m.dosage || ''} (${m.frequency || 'Daily'}, Started: ${m.startDate || 'Active'})`)
       .join('\n');
 
-    const summary = `CLINICAL BRIEFING & HEALTH PROFILE SUMMARY\n\n1. Glycemic & Metabolic Status:\n- HbA1c: 6.8% (dated 2026-09-15, reference range 4.0–5.6%). While elevated above non-diabetic ranges, longitudinal data reflects steady downward progression from 7.2% (March 2026) to 7.0% (June 2026) to 6.8% (September 2026).\n- Fasting Blood Glucose: 112 mg/dL (reference range 70–99 mg/dL).\n\n2. Cardiovascular & Vitals:\n- Blood Pressure: 128/82 mmHg recorded during cardiology evaluation on 2026-08-22 with normal sinus rhythm.\n- LDL Cholesterol: 98 mg/dL (optimal target <100 mg/dL).\n\n3. Active Pharmacotherapy:\n${medText}\n\n4. Verified Observations Summary:\n${obsText}\n\n5. Recommended Consultation Discussion Points:\n- "Given my HbA1c improvement from 7.2% to 6.8%, should we maintain Metformin 500 mg at the current dosage?"\n- "Are my sitting blood pressure readings of 128/82 mmHg aligned with our long-term target on Lisinopril?"\n- "Should we review Vitamin D levels or schedule a follow-up metabolic panel in 3 months?"\n\n*Note: This AI-generated summary is derived from verified health records for your clinician's review and does not substitute for clinical judgment.*`;
+    const summary = `CLINICAL BRIEFING & HEALTH PROFILE SUMMARY\nPatient: Alex Morgan (ID: usr-demo-synvora-001) | Verified Sources: 3 Medical Documents\n\n1. Glycemic & Metabolic Status:\n- **HbA1c**: 6.8% (dated 2026-09-15, reference range 4.0–5.6%). Longitudinal data shows steady downward progression across 2026 (7.2% March → 7.0% June → 6.8% September), reflecting therapeutic responsiveness.\n- **Fasting Blood Glucose**: 112 mg/dL (reference range 70–99 mg/dL, marked High).\n\n2. Cardiovascular & Vitals Assessment:\n- **Blood Pressure**: 128/82 mmHg recorded during cardiology evaluation on 2026-08-22 with normal sinus rhythm.\n- **LDL Cholesterol**: 98 mg/dL (optimal target <100 mg/dL).\n\n3. Active Pharmacotherapy:\n${medText}\n\n4. Verified Diagnostic Observations:\n${obsText}\n\n5. Targeted Consultation Discussion Points for Dr. Rajiv Sharma:\n- "Given my HbA1c improvement from 7.2% to 6.8%, should we maintain Metformin 500 mg at the current dosage?"\n- "Are my sitting blood pressure readings of 128/82 mmHg aligned with our long-term target on Lisinopril?"\n- "Should we review renal function (eGFR) or schedule a follow-up metabolic panel in 3 months?"\n\n6. Preventive Surveillance Recommendations:\n- Continue 20–30 minute brisk walking after evening meals to assist postprandial glucose disposal.\n- Maintain home blood pressure log twice weekly.\n- Schedule repeat HbA1c in approximately 90 days to confirm continued glycemic stabilization.\n\n*Note: This AI-generated summary is derived strictly from verified health records for clinician review and does not substitute for independent professional diagnosis.*`;
 
     return Promise.resolve({
       summary,

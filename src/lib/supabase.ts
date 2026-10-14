@@ -24,10 +24,10 @@ export const configurationMessage = !isRealSupabaseConfigured
 // In-memory mock client for preview mode
 const listeners = new Set<(event: string, session: Session | null) => void>();
 
-const DEMO_USER_ID = 'usr-demo-synvora-001';
-const STORAGE_KEY = 'synvora_demo_session';
+export const DEMO_USER_ID = 'usr-demo-synvora-001';
+export const STORAGE_KEY = 'synvora_demo_session';
 
-function createMockSession(email: string, fullName = 'Alex Morgan'): Session {
+export function createMockSession(email = 'alex.morgan@example.com', fullName = 'Alex Morgan'): Session {
   const user: User = {
     id: DEMO_USER_ID,
     app_metadata: { provider: 'email', altrix_demo: true },
@@ -71,7 +71,7 @@ let inMemorySession: Session | null = (() => {
   return createMockSession('alex.morgan@example.com');
 })();
 
-function setMockSession(session: Session | null, event = 'SIGNED_IN') {
+export function setMockSession(session: Session | null, event = 'SIGNED_IN') {
   inMemorySession = session;
   try {
     if (typeof window !== 'undefined') {

@@ -48,7 +48,7 @@ interface VerifiedHealthRecords {
   sources: EvidenceSource[];
 }
 
-function withTimeout<T>(promise: Promise<T>, ms = 3500): Promise<T> {
+function withTimeout<T>(promise: Promise<T>, ms = 12000): Promise<T> {
   return Promise.race([
     promise,
     new Promise<T>((_, reject) => setTimeout(() => reject(new Error('AI generation timed out')), ms)),

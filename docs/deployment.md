@@ -22,7 +22,7 @@ Vercel documents Vite builds and exposes build-time variables prefixed with `VIT
 
 ## Runtime Notes
 
-Use Node.js 22 or newer for both projects. Render's service uses `npm ci`, `npm run build`, and `npm start`; its HTTP health check is `/api/health`. The API applies in-memory rate limits and serializes OCR through a bounded in-process queue, so begin with one service instance. Do not attach persistent local storage for patient documents.
+Use Node.js 22 or newer for both projects. Render's service uses `npm ci --include=dev` for the TypeScript build, followed by `npm start`; its HTTP health check is `/api/health`. The API applies in-memory rate limits and serializes OCR through a bounded in-process queue, so begin with one service instance. Do not attach persistent local storage for patient documents.
 
 PDF parsing/rendering and Tesseract.js run inside Node. Tesseract may fetch English traineddata on first use unless `TESSERACT_LANG_PATH` points to a provisioned compatible copy. Confirm the selected Render plan has enough memory/CPU and outbound access for that workload. Current OCR is English-only; handwriting, deskew/rotation preprocessing and dependable table structure are not supported or verified. Upload and per-document limits are described in [the OCR notes](../altrix-backend/docs/ocr.md).
 
